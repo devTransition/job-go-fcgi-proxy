@@ -19,7 +19,9 @@ func main() {
   app.Usage = ""
   app.Flags = []cli.Flag{
     cli.StringFlag{Name: "amqp-host", Value:"127.0.0.1", Usage: "hostname (default: 127.0.0.1)"},
-    cli.StringFlag{Name: "queue", Value:"rpc_queue", Usage: "name of queue (default: rpc_queue)"},
+    cli.StringFlag{Name: "amqp-user", Value:"guest", Usage: "username (default: guest)"},
+    cli.StringFlag{Name: "amqp-password", Value:"guest", Usage: "password (default: guest)"},
+    cli.StringFlag{Name: "amqp-queue", Value:"rpc_queue", Usage: "name of queue (default: rpc_queue)"},
     cli.IntFlag{Name: "prefetch-count", Value: 0, Usage: "AMQP prefetch count (default: 0) "},
     cli.StringFlag{Name: "fcgi-host", Value:"127.0.0.1:9000", Usage: "hostname (default: 127.0.0.1:9000)"},
     //cli.StringFlag{Name: "ctag", Value:"simple-consumer", Usage: "unique tag for consumer (default: simple-consumer)"},
@@ -40,9 +42,8 @@ func runApp(c *cli.Context) {
 
   var wg sync.WaitGroup
 
-  porto := "amqp://"
-  uri := porto + c.String("amqp-host")
-  queue := c.String("queue")
+  uri := "amqp://" + c.String("amqp-user") + ":" + c.String("amqp-password")+ "@" + c.String("amqp-host")
+  queue := c.String("amqp-queue")
 
   // TODO need to be generated UUID
   ctag := "simple-consumer"
