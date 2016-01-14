@@ -308,6 +308,15 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
     delivery.CorrelationId,
     delivery.ReplyTo,
   )
+  /* TODO: Skip Sending back result of fcgi when delivery.CorrelationId OR delivery.CorrelationId is not set */
+
+  /* TODO: Create new json object for fcgi
+   * {
+   *    routing_key: delivery.RoutingKey,
+   *    app_id: delivery.AppId,
+   *    body: {json part of delivery.Body}
+   * }
+   */
   
   fcgi, err := fcgiclient.Dial("tcp", w.fcgiHost)
   
@@ -321,8 +330,10 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 
   fcgiParams := make(map[string]string)
   fcgiParams["SERVER_PROTOCOL"] = "HTTP/1.1"
-  fcgiParams["SCRIPT_NAME"] = "/app/process.php"
-  fcgiParams["SCRIPT_FILENAME"] = "/app/process.php"
+  /* TODO: Add these things a cli-paramters */
+  fcgiParams["SCRIPT_NAME"] = "/core/cgi.php"
+  fcgiParams["SCRIPT_FILENAME"] = "/data/www.secucore/core/cgi.php"
+  fcgiParams["REQUEST_URI"] = "/core/cgi.php/job/process"
 
   rd := bytes.NewReader(delivery.Body)
   resp, err := fcgi.Post(fcgiParams, "application/x-json", rd, rd.Len())
@@ -335,6 +346,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
   defer resp.Body.Close()
 
   content, err := ioutil.ReadAll(resp.Body)
+  /* TODO: Catch FCGI Errors and return defined json error object instead */
 
   //log.Printf("%q %q", string(content), resp.Header["Content-type"])
   //string(content)
