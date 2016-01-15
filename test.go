@@ -391,6 +391,8 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
   
   log.Printf("fcgiParams: %q", fcgiParams)
   
+  // TODO error if routingKey is not set
+  
   /* 
    * {
    *    routing_key: delivery.RoutingKey,
