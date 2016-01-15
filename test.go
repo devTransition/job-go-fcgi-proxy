@@ -8,6 +8,7 @@ import (
   "os"
   "fmt"
   "io/ioutil"
+  "encoding/json"
   "github.com/codegangsta/cli"
   "github.com/streadway/amqp"
   "github.com/tomasen/fcgi_client"
@@ -22,8 +23,12 @@ func main() {
     cli.StringFlag{Name: "amqp-user", Value:"guest", Usage: "username (default: guest)"},
     cli.StringFlag{Name: "amqp-password", Value:"guest", Usage: "password (default: guest)"},
     cli.StringFlag{Name: "amqp-queue", Value:"rpc_queue", Usage: "name of queue (default: rpc_queue)"},
-    cli.IntFlag{Name: "prefetch-count", Value: 0, Usage: "AMQP prefetch count (default: 0) "},
+    cli.IntFlag{Name: "amqp-prefetch-count", Value: 0, Usage: "AMQP prefetch count (default: 0) "},
     cli.StringFlag{Name: "fcgi-host", Value:"127.0.0.1:9000", Usage: "hostname (default: 127.0.0.1:9000)"},
+    cli.StringFlag{Name: "fcgi-server-protocol", Value:"HTTP/1.1", Usage: "SERVER_PROTOCOL (default: HTTP/1.1)"},
+    cli.StringFlag{Name: "fcgi-script-name", Value:"/core/cgi.php", Usage: "SCRIPT_NAME (default: /core/cgi.php)"},
+    cli.StringFlag{Name: "fcgi-script-filename", Value:"/data/www.secucore/core/cgi.php", Usage: "SCRIPT_FILENAME (default: /data/www.secucore/core/cgi.php)"},
+    cli.StringFlag{Name: "fcgi-request-uri", Value:"/core/cgi.php/job/process", Usage: "REQUEST_URI (default: /data/www.secucore/core/cgi.php)"},
     //cli.StringFlag{Name: "ctag", Value:"simple-consumer", Usage: "unique tag for consumer (default: simple-consumer)"},
     cli.IntFlag{Name: "lifetime", Value: 0, Usage: "Number of seconds (default: 0, forever)"},
   }
@@ -47,9 +52,15 @@ func runApp(c *cli.Context) {
 
   // TODO need to be generated UUID
   ctag := "simple-consumer"
-  prefetchCount := c.Int("prefetch-count")
+  prefetchCount := c.Int("amqp-prefetch-count")
   fcgiHost := c.String("fcgi-host")
   lifetime := c.Int("lifetime")
+  
+  fcgiParams := make(map[string]string)
+  fcgiParams["SERVER_PROTOCOL"] = c.String("fcgi-server-protocol")
+  fcgiParams["SCRIPT_NAME"] = c.String("fcgi-script-name")
+  fcgiParams["SCRIPT_FILENAME"] = c.String("fcgi-script-filename")
+  fcgiParams["REQUEST_URI"] = c.String("fcgi-request-uri")
   
   amqpConnection, err := NewAmqpConnection(uri, prefetchCount)
   if err != nil {
@@ -62,7 +73,7 @@ func runApp(c *cli.Context) {
     log.Fatalf("%s", err)
   }
 
-  worker := NewFcgiWorker(amqpConnection.channel, fcgiHost)
+  worker := NewFcgiWorker(amqpConnection.channel, fcgiHost, fcgiParams)
 
   dispatcher := NewDispatcher(consumer.delivery, worker)
   dispatcher.Run()
@@ -106,6 +117,28 @@ func waitShutdown(lifetime int) {
     
   }
   
+}
+
+/*
+{
+	"status": "error",
+	"error": "ProductInternalException",
+	"error_details": "Proxy: Backend not availble",
+	"error_user": "Es ist ein interner Fehler aufgetreten",
+	"code": 0
+}
+*/
+
+type ErrorMessage struct {
+  status          string
+  error           string
+  error_details   string
+  error_user      string
+  code            int
+}
+
+func NewErrorMessage (details string) (*ErrorMessage) {
+  return &ErrorMessage{status:"error", error:"ProductInternalException", error_details: details}
 }
 
 type AmqpConnection struct {
@@ -288,14 +321,16 @@ type FcgiWorker struct {
 
   amqpChannel *amqp.Channel
   fcgiHost    string
+  fcgiParams  map[string]string
   confirms <-chan amqp.Confirmation
 }
 
-func NewFcgiWorker(amqpChannel *amqp.Channel, fcgiHost string) *FcgiWorker {
+func NewFcgiWorker(amqpChannel *amqp.Channel, fcgiHost string, fcgiParams map[string]string) *FcgiWorker {
 
   return &FcgiWorker{
     amqpChannel: amqpChannel,
     fcgiHost: fcgiHost,
+    fcgiParams: fcgiParams,
     confirms: amqpChannel.NotifyPublish(make(chan amqp.Confirmation, 1)),
   }
 
@@ -303,14 +338,60 @@ func NewFcgiWorker(amqpChannel *amqp.Channel, fcgiHost string) *FcgiWorker {
 
 func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 
+  skipReply := delivery.CorrelationId == "" || delivery.ReplyTo == ""
+  
   log.Printf(
-    "CorrelationId: %q, ReplyTo: %q",
+    "CorrelationId: %q, ReplyTo: %q, skipReply: %t",
     delivery.CorrelationId,
     delivery.ReplyTo,
+    skipReply,
   )
-  /* TODO: Skip Sending back result of fcgi when delivery.CorrelationId OR delivery.CorrelationId is not set */
+  
+  // check for valid input from amqp
+  var deliveryJson map[string]interface{}
+  err := json.Unmarshal(delivery.Body, &deliveryJson)
+  
+  if err != nil {
+    
+    err = fmt.Errorf("Amqp message body not valid: %s", string(delivery.Body));
+    
+    if skipReply {
+      // don't publish error when reply skipped
+      log.Println(err)
+      return nil;
+    }
+    
+    return w.publishReplyError(&delivery, err)
+    
+  }
+  
+  fcgi, err := fcgiclient.Dial("tcp", w.fcgiHost)
+  
+  if err != nil {
+    
+    err = fmt.Errorf("FCGI connection failed: %s", err);
+    
+    if skipReply {
+      // don't publish error when reply skipped
+      log.Println(err)
+      return nil;
+    }
+    
+    return w.publishReplyError(&delivery, err)
+  }
 
-  /* TODO: Create new json object for fcgi
+  defer fcgi.Close()
+
+  fcgiParams := make(map[string]string)
+  
+  // copy fcgi params from options
+  for k, v := range w.fcgiParams {
+    fcgiParams[k] = v
+  }
+  
+  log.Printf("fcgiParams: %q", fcgiParams)
+  
+  /* 
    * {
    *    routing_key: delivery.RoutingKey,
    *    app_id: delivery.AppId,
@@ -318,36 +399,68 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
    * }
    */
   
-  fcgi, err := fcgiclient.Dial("tcp", w.fcgiHost)
+  body := make(map[string]interface{})
+  body["routing_key"] = delivery.RoutingKey
+  body["app_id"] = delivery.AppId
+  body["body"] = deliveryJson
+  bodyJson, err := json.Marshal(body)
   
-  if err != nil {
-    fmt.Errorf("FCGI connection failed: %s", err)
-    return nil
-  }
-
-  defer fcgi.Close()
-
-
-  fcgiParams := make(map[string]string)
-  fcgiParams["SERVER_PROTOCOL"] = "HTTP/1.1"
-  /* TODO: Add these things a cli-paramters */
-  fcgiParams["SCRIPT_NAME"] = "/core/cgi.php"
-  fcgiParams["SCRIPT_FILENAME"] = "/data/www.secucore/core/cgi.php"
-  fcgiParams["REQUEST_URI"] = "/core/cgi.php/job/process"
-
-  rd := bytes.NewReader(delivery.Body)
+  rd := bytes.NewReader(bodyJson)
   resp, err := fcgi.Post(fcgiParams, "application/x-json", rd, rd.Len())
 
   if err != nil {
-    log.Println(err)
-    return nil
+    // get this error when fcgi script doesn't exist
+    //log.Println(err.Error() == "malformed MIME header line: Primary script unknown")
+    
+    err = fmt.Errorf("FCGI script failed: %s", err);
+    
+    if skipReply {
+      // don't publish error when reply skipped
+      log.Println(err)
+      return nil;
+    }
+    
+    return w.publishReplyError(&delivery, err)
+    
   }
 
   defer resp.Body.Close()
 
   content, err := ioutil.ReadAll(resp.Body)
-  /* TODO: Catch FCGI Errors and return defined json error object instead */
-
+  
+  if err != nil {
+    
+    err = fmt.Errorf("FCGI error: %s", err);
+    
+    if skipReply {
+      // don't publish error when reply skipped
+      log.Println(err)
+      return nil;
+    }
+    
+    return w.publishReplyError(&delivery, err)
+    
+  }
+  
+  var response map[string]interface{}
+  err = json.Unmarshal(content, &response)
+  
+  if err != nil {
+    
+    err = fmt.Errorf("FCGI response not valid: %s", string(content));
+    
+    if skipReply {
+      // don't publish error when reply skipped
+      log.Println(err)
+      return nil;
+    }
+    
+    return w.publishReplyError(&delivery, err)
+    
+  }
+  
+  
+  
   //log.Printf("%q %q", string(content), resp.Header["Content-type"])
   //string(content)
   
@@ -360,10 +473,35 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
   */
   
   // func (me *Channel) Publish(exchange, key string, mandatory, immediate bool, msg Publishing) error
+  
+  if skipReply {
+    // skip reply, just get success result from fcgi and ack the message
+    // TODO do we need to log errors here or publish to separate queue?
+    delivery.Ack(false)
+    return nil
+  }
+  
+  // proceed with publishing result from fcgi to amqp reply
+  
+  return w.publishReply(&delivery, content)
+
+}
+
+func (w *FcgiWorker) publishReplyError(delivery *amqp.Delivery, err error) error {
+  
+  log.Println(fmt.Sprintf("Proxy: %s", err));
+  body := NewErrorMessage(fmt.Sprintf("Proxy: %s", err))
+  bodyJson, _ := json.Marshal(body)
+  
+  return w.publishReply(delivery, bodyJson)
+}
+
+func (w *FcgiWorker) publishReply(delivery *amqp.Delivery, body []byte) error {
+  
   msg := amqp.Publishing{
     CorrelationId: delivery.CorrelationId,
     ContentType:  "application/x-json",
-    Body:         content,
+    Body:         body,
   }
   
   var confirmed amqp.Confirmation
@@ -372,11 +510,6 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
   //confirms := w.amqpChannel.NotifyPublish(make(chan amqp.Confirmation, 1))
   
   w.amqpChannel.Publish("", delivery.ReplyTo, false, false, msg)
-  
-  if delivery.CorrelationId == "a9b34bb8-f2e4-4602-b393-1f8a79885bf7" {
-    //log.Printf("Pause %q", delivery.CorrelationId)
-    //time.Sleep(time.Second * 10)
-  }
   
   if confirmed = <-w.confirms; confirmed.Ack {
     log.Printf("Published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
@@ -392,8 +525,9 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
   delivery.Ack(false)
   
   return nil
-
+  
 }
+
 
 func testSmth() {
   
