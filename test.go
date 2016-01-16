@@ -31,6 +31,7 @@ func main() {
     cli.StringFlag{Name: "fcgi-request-uri", Value:"/core/cgi.php/job/process", Usage: "REQUEST_URI (default: /data/www.secucore/core/cgi.php)"},
     //cli.StringFlag{Name: "ctag", Value:"simple-consumer", Usage: "unique tag for consumer (default: simple-consumer)"},
     cli.IntFlag{Name: "lifetime", Value: 0, Usage: "Number of seconds (default: 0, forever)"},
+    // TODO add some -debug param to enable console log
   }
   app.Action = func(c *cli.Context) {
     runApp(c)
@@ -288,13 +289,14 @@ func (d *Dispatcher) dispatch() {
 
   for job := range d.jobQueue {
 
-    log.Printf("DeliveryTag: %v", job.DeliveryTag)
+    //log.Printf("DeliveryTag: %v", job.DeliveryTag)
     wg.Add(1)
 
-    go func() {
+    go func(job amqp.Delivery) {
       d.worker.work(job)
       wg.Done()
-    }()
+    }(job)
+    
 
   }
 
@@ -340,12 +342,15 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 
   skipReply := delivery.CorrelationId == "" || delivery.ReplyTo == ""
   
+  /*
   log.Printf(
-    "CorrelationId: %q, ReplyTo: %q, skipReply: %t",
+    "tag: %v, CorrelationId: %q, ReplyTo: %q, skipReply: %t",
+    delivery.DeliveryTag,
     delivery.CorrelationId,
     delivery.ReplyTo,
     skipReply,
   )
+  */
   
   // check for valid input from amqp
   var deliveryJson map[string]interface{}
@@ -364,6 +369,9 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
     return w.publishReplyError(&delivery, err)
     
   }
+  
+  // TODO ? handle errors when fcgi.max_children reached, looks like don't need it because of fcgi internal queue
+  // TODO use net.dialTimeout, add an option to fcgiclient, extend it?
   
   fcgi, err := fcgiclient.Dial("tcp", w.fcgiHost)
   
@@ -389,7 +397,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
     fcgiParams[k] = v
   }
   
-  log.Printf("fcgiParams: %q", fcgiParams)
+  //log.Printf("fcgiParams: %q", fcgiParams)
   
   // TODO error if routingKey is not set
   
@@ -508,22 +516,23 @@ func (w *FcgiWorker) publishReply(delivery *amqp.Delivery, body []byte) error {
   
   var confirmed amqp.Confirmation
   
-  log.Printf("Publishing %q", delivery.CorrelationId)
+  //log.Printf("Publishing %q", delivery.CorrelationId)
   //confirms := w.amqpChannel.NotifyPublish(make(chan amqp.Confirmation, 1))
   
   w.amqpChannel.Publish("", delivery.ReplyTo, false, false, msg)
   
   if confirmed = <-w.confirms; confirmed.Ack {
-    log.Printf("Published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
+    //log.Printf("Published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
   } else {
-    log.Printf("Not published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
+    //log.Printf("Not published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
   }
   
   //log.Printf("%q", w.amqpChannel)
-  log.Printf("--------------------------")
+  //log.Printf("--------------------------")
   
   //time.Sleep(time.Second*10)
   
+  //log.Printf("[%v] acking %q", delivery.DeliveryTag, delivery.CorrelationId)
   delivery.Ack(false)
   
   return nil
