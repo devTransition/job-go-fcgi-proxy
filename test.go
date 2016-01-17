@@ -11,7 +11,7 @@ import (
   "encoding/json"
   "github.com/codegangsta/cli"
   "github.com/streadway/amqp"
-  "github.com/tomasen/fcgi_client"
+  "github.com/valichek/fcgi_client"
 )
 
 func main() {
@@ -25,6 +25,7 @@ func main() {
     cli.StringFlag{Name: "amqp-queue", Value:"rpc_queue", Usage: "name of queue (default: rpc_queue)"},
     cli.IntFlag{Name: "amqp-prefetch-count", Value: 0, Usage: "AMQP prefetch count (default: 0) "},
     cli.StringFlag{Name: "fcgi-host", Value:"127.0.0.1:9000", Usage: "hostname (default: 127.0.0.1:9000)"},
+    cli.IntFlag{Name: "fcgi-timeout", Value: 5, Usage: "Fcgi connection timeout in seconds (default: 5)"},
     cli.StringFlag{Name: "fcgi-server-protocol", Value:"HTTP/1.1", Usage: "SERVER_PROTOCOL (default: HTTP/1.1)"},
     cli.StringFlag{Name: "fcgi-script-name", Value:"/core/cgi.php", Usage: "SCRIPT_NAME (default: /core/cgi.php)"},
     cli.StringFlag{Name: "fcgi-script-filename", Value:"/data/www.secucore/core/cgi.php", Usage: "SCRIPT_FILENAME (default: /data/www.secucore/core/cgi.php)"},
@@ -55,6 +56,7 @@ func runApp(c *cli.Context) {
   ctag := "simple-consumer"
   prefetchCount := c.Int("amqp-prefetch-count")
   fcgiHost := c.String("fcgi-host")
+  fcgiTimeout := time.Duration(c.Int("fcgi-timeout"))*time.Second
   lifetime := c.Int("lifetime")
   
   fcgiParams := make(map[string]string)
@@ -74,7 +76,7 @@ func runApp(c *cli.Context) {
     log.Fatalf("%s", err)
   }
 
-  worker := NewFcgiWorker(amqpConnection.channel, fcgiHost, fcgiParams)
+  worker := NewFcgiWorker(amqpConnection.channel, fcgiHost, fcgiTimeout, fcgiParams)
 
   dispatcher := NewDispatcher(consumer.delivery, worker)
   dispatcher.Run()
@@ -323,15 +325,17 @@ type FcgiWorker struct {
 
   amqpChannel *amqp.Channel
   fcgiHost    string
+  fcgiTimeout time.Duration
   fcgiParams  map[string]string
-  confirms <-chan amqp.Confirmation
+  confirms    <-chan amqp.Confirmation
 }
 
-func NewFcgiWorker(amqpChannel *amqp.Channel, fcgiHost string, fcgiParams map[string]string) *FcgiWorker {
-
+func NewFcgiWorker(amqpChannel *amqp.Channel, fcgiHost string, fcgiTimeout time.Duration, fcgiParams map[string]string) *FcgiWorker {
+  
   return &FcgiWorker{
     amqpChannel: amqpChannel,
     fcgiHost: fcgiHost,
+    fcgiTimeout: fcgiTimeout,
     fcgiParams: fcgiParams,
     confirms: amqpChannel.NotifyPublish(make(chan amqp.Confirmation, 1)),
   }
@@ -371,9 +375,8 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
   }
   
   // TODO ? handle errors when fcgi.max_children reached, looks like don't need it because of fcgi internal queue
-  // TODO use net.dialTimeout, add an option to fcgiclient, extend it?
   
-  fcgi, err := fcgiclient.Dial("tcp", w.fcgiHost)
+  fcgi, err := fcgiclient.DialTimeout("tcp", w.fcgiHost, w.fcgiTimeout)
   
   if err != nil {
     
