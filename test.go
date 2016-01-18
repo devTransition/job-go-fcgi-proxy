@@ -133,11 +133,11 @@ func waitShutdown(lifetime int) {
 */
 
 type ErrorMessage struct {
-  Status       string  `json: status`
-  Error        string  `json: error`
-  ErrorDetails string  `json: error_details`
-  ErrorUser    string  `json: error_user`
-  Code         int     `json: code`
+  Status       string  `json:"status"`
+  Error        string  `json:"error"`
+  ErrorDetails string  `json:"error_details"`
+  ErrorUser    string  `json:"error_user"`
+  Code         int     `json:"code"`
 }
 
 func NewErrorMessage (details string) (*ErrorMessage) {
@@ -511,7 +511,7 @@ func (w *FcgiWorker) publishReplyError(delivery *amqp.Delivery, err error) error
   body := NewErrorMessage(fmt.Sprintf("Proxy: %s", err))
   //log.Printf("bodyJson: %q", body);
   bodyJson, _ := json.Marshal(body)
-  //log.Printf("bodyJson: %q", bodyJson);
+  log.Printf("bodyJson: %q", bodyJson);
   
   return w.publishReply(delivery, bodyJson, false)
 }
