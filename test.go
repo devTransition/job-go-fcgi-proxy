@@ -367,6 +367,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
     if skipReply {
       // don't publish error when reply skipped
       log.Println(err)
+      delivery.Nack(false, false)
       return nil;
     }
     
@@ -385,6 +386,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
     if skipReply {
       // don't publish error when reply skipped
       log.Println(err)
+      delivery.Nack(false, false)
       return nil;
     }
     
@@ -430,6 +432,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
     if skipReply {
       // don't publish error when reply skipped
       log.Println(err)
+      delivery.Nack(false, false)
       return nil;
     }
     
@@ -448,6 +451,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
     if skipReply {
       // don't publish error when reply skipped
       log.Println(err)
+      delivery.Nack(false, false)
       return nil;
     }
     
@@ -465,6 +469,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
     if skipReply {
       // don't publish error when reply skipped
       log.Println(err)
+      delivery.Nack(false, false)
       return nil;
     }
     
@@ -496,7 +501,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
   
   // proceed with publishing result from fcgi to amqp reply
   
-  return w.publishReply(&delivery, content)
+  return w.publishReply(&delivery, content, true)
 
 }
 
@@ -508,10 +513,10 @@ func (w *FcgiWorker) publishReplyError(delivery *amqp.Delivery, err error) error
   bodyJson, _ := json.Marshal(body)
   //log.Printf("bodyJson: %q", bodyJson);
   
-  return w.publishReply(delivery, bodyJson)
+  return w.publishReply(delivery, bodyJson, false)
 }
 
-func (w *FcgiWorker) publishReply(delivery *amqp.Delivery, body []byte) error {
+func (w *FcgiWorker) publishReply(delivery *amqp.Delivery, body []byte, ack bool) error {
   
   msg := amqp.Publishing{
     CorrelationId: delivery.CorrelationId,
@@ -538,7 +543,12 @@ func (w *FcgiWorker) publishReply(delivery *amqp.Delivery, body []byte) error {
   //time.Sleep(time.Second*10)
   
   //log.Printf("[%v] acking %q", delivery.DeliveryTag, delivery.CorrelationId)
-  delivery.Ack(false)
+  
+  if ack {
+    delivery.Ack(false)
+  } else {
+    delivery.Nack(false, false)
+  }
   
   return nil
   
