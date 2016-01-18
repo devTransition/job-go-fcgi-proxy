@@ -7,6 +7,7 @@ import (
   "sync"
   "os"
   "fmt"
+  "strings"
   "io/ioutil"
   "encoding/json"
   "github.com/codegangsta/cli"
@@ -19,6 +20,7 @@ func main() {
   app.Name = "amqp-fcgi"
   app.Usage = ""
   app.Flags = []cli.Flag{
+    cli.StringFlag{Name: "instance-name", Value:"instance-name", Usage: "unique instance name (default: instance-name)"},
     cli.StringFlag{Name: "amqp-host", Value:"127.0.0.1", Usage: "hostname (default: 127.0.0.1)"},
     cli.StringFlag{Name: "amqp-user", Value:"guest", Usage: "username (default: guest)"},
     cli.StringFlag{Name: "amqp-password", Value:"guest", Usage: "password (default: guest)"},
@@ -53,14 +55,29 @@ func runApp(c *cli.Context) {
   queue := c.String("amqp-queue")
 
   // TODO need to be generated UUID
-  ctag := "simple-consumer"
+  ctag := c.String("instance-name")
   prefetchCount := c.Int("amqp-prefetch-count")
   fcgiHost := c.String("fcgi-host")
   fcgiTimeout := time.Duration(c.Int("fcgi-timeout"))*time.Second
   lifetime := c.Int("lifetime")
   
+  fcgiHostAddr, fcgiHostPort := strings.Split(fcgiHost, ":")[0], strings.Split(fcgiHost, ":")[1]
+  
   fcgiParams := make(map[string]string)
+  
   fcgiParams["SERVER_PROTOCOL"] = c.String("fcgi-server-protocol")
+  
+  fcgiParams["SERVER_ADDR"] = fcgiHostAddr
+  fcgiParams["SERVER_PORT"] = fcgiHostPort
+  fcgiParams["SERVER_NAME"] = c.String("instance-name")+".job-go-fcgi-proxy.local"
+  
+  fcgiParams["REMOTE_ADDR"] = "127.0.0.1"
+  fcgiParams["REMOTE_PORT"] = fcgiHostPort
+  
+  
+  //log.Printf("%q %q", fcgiHostAddr, fcgiHostPort);
+  
+  
   fcgiParams["SCRIPT_NAME"] = c.String("fcgi-script-name")
   fcgiParams["SCRIPT_FILENAME"] = c.String("fcgi-script-filename")
   fcgiParams["REQUEST_URI"] = c.String("fcgi-request-uri")
@@ -511,7 +528,7 @@ func (w *FcgiWorker) publishReplyError(delivery *amqp.Delivery, err error) error
   body := NewErrorMessage(fmt.Sprintf("Proxy: %s", err))
   //log.Printf("bodyJson: %q", body);
   bodyJson, _ := json.Marshal(body)
-  log.Printf("bodyJson: %q", bodyJson);
+  //log.Printf("bodyJson: %q", bodyJson);
   
   return w.publishReply(delivery, bodyJson, false)
 }
@@ -556,5 +573,7 @@ func (w *FcgiWorker) publishReply(delivery *amqp.Delivery, body []byte, ack bool
 
 
 func testSmth() {
+  
+  
   
 }
