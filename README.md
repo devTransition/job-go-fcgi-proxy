@@ -15,5 +15,12 @@ See [job-benchmark-tools](https://github.com/devTransition/job-benchmark-tools)
     
 ## run proxy
 
+### single-route config:
+    
     go run fcgi.go -amqp-host 192.168.99.100 -fcgi-host 192.168.99.100:9000 -lifetime=0 -fcgi-script-filename="/app/process.php" -amqp-prefetch-count 100
+
+### use config from file to run multiple routes:
+Supported config formats: JSON, TOML, YAML and HCL, see [https://github.com/spf13/viper](https://github.com/spf13/viper) for more
+    
+    go run fcgi.go -config="config-json"
 

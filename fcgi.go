@@ -51,11 +51,11 @@ func runApp(c *cli.Context) {
     println(fmt.Sprintf("Running ... Will exit after %d sec", lifetime))
   }
   
-  configFile := c.String("config")
+  configSource := c.String("config")
   
   proxyConfigs := []proxy.Configuration{}
   
-  if configFile == "" {
+  if configSource == "" {
     
     config := proxy.Configuration{
       InstanceName:c.String("instance-name"),
@@ -80,6 +80,10 @@ func runApp(c *cli.Context) {
   } else {
     
     // TODO load configuration from file
+    err := proxy.FillConfigFromFile(&proxyConfigs, configSource)
+    if err != nil {
+      log.Fatalf("%s", err)
+    }
     
   }
   
