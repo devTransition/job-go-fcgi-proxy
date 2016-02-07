@@ -12,7 +12,7 @@ import (
   "encoding/json"
   "github.com/codegangsta/cli"
   "github.com/streadway/amqp"
-  "github.com/valichek/fcgi_client"
+  "github.com/tomasen/fcgi_client"
 )
 
 func main() {

@@ -1,0 +1,6 @@
+package: github.com/devTransition/job-go-fcgi-proxy
+import:
+- package: github.com/codegangsta/cli
+- package: github.com/spf13/viper
+- package: github.com/streadway/amqp
+- package: github.com/tomasen/fcgi_client

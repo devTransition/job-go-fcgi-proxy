@@ -12,6 +12,11 @@ See [job-benchmark-tools](https://github.com/devTransition/job-benchmark-tools)
 ## run FastCGI server
 
     docker run -d --name php-rabbit-test -p 9000:9000 -v /path/to/dir/with/php-script:/app php:fpm
+
+## install and configure
+Project is configured to use [glide package manager](https://github.com/Masterminds/glide), when running commands add `export GO15VENDOREXPERIMENT=1;`
+    
+    glide install; glide rebuild
     
 ## run proxy
 
