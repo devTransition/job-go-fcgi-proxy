@@ -28,4 +28,7 @@ Project is configured to use [glide package manager](https://github.com/Mastermi
 Supported config formats: JSON, TOML, YAML and HCL, see [https://github.com/spf13/viper](https://github.com/spf13/viper) for more
     
     go run fcgi.go -config="config-json"
+    
+## TO-DO
+https://github.com/pquerna/ffjson
 

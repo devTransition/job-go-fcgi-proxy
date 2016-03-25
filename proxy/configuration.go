@@ -3,7 +3,8 @@ package proxy
 import (
   "github.com/spf13/viper"
   "fmt"
-  //"log"
+  "github.com/codegangsta/cli"
+  "log"
   //"github.com/devTransition/job-go-fcgi-proxy/util"
   //"reflect"
 )
@@ -37,7 +38,89 @@ func (s *Configuration) FromMap(m map[string]interface{}) error {
 }
 */
 
-func FillConfigFromFile(config *[]Configuration, filename string) (error) {
+type ServiceConfig struct {
+  
+  Brokers map[string]BrokerConfig
+  Workers map[string]WorkerConfig
+  Routes  []RouteConfig
+  
+}
+
+type BrokerConfig struct {
+  
+  Id       string
+  Type     string
+  Host     string
+  User     string
+  Password string
+  
+}
+
+type WorkerConfig struct {
+  
+  Id             string
+  Type           string
+  Host           string
+  Timeout        int
+  ServerProtocol string
+  ScriptName     string
+  ScriptFilename string
+  RequestUri     string
+  
+}
+
+type RouteConfig struct {
+  
+  Name          string
+  Broker        string
+  Worker        string
+  Queue         string
+  PrefetchCount int
+  
+}
+
+func FillServiceConfigFromCli(config *ServiceConfig, c *cli.Context) {
+
+  brokerConfig := BrokerConfig{
+    Id:"broker",
+    Type:"rabbitmq",
+    Host:c.String("amqp-host"),
+    User:c.String("amqp-user"),
+    Password:c.String("amqp-password"),
+  }
+
+  brokers := map[string]BrokerConfig{}
+  brokers[brokerConfig.Id] = brokerConfig
+  config.Brokers = brokers
+
+  workerConfig := WorkerConfig{
+    Id:"worker",
+    Type:"fastcgi",
+    Host:c.String("fcgi-host"),
+    Timeout:c.Int("fcgi-timeout"),
+    ServerProtocol:c.String("fcgi-server-protocol"),
+    ScriptName:c.String("fcgi-script-name"),
+    ScriptFilename:c.String("fcgi-script-filename"),
+    RequestUri:c.String("fcgi-request-uri"),
+  }
+
+  workers := map[string]WorkerConfig{}
+  workers[workerConfig.Id] = workerConfig
+  config.Workers = workers
+
+  routeConfig := RouteConfig{
+    Name:c.String("instance-name"),
+    Broker:brokerConfig.Id,
+    Worker:workerConfig.Id,
+    Queue:c.String("amqp-queue"),
+    PrefetchCount:c.Int("amqp-prefetch-count"),
+  }
+
+  config.Routes = append(config.Routes, routeConfig)
+  
+}
+
+func FillServiceConfigFromFile(config *ServiceConfig, filename string) (error) {
   
   viper.SetConfigName(filename)
   viper.AddConfigPath(".") // look in the working dir
@@ -50,14 +133,52 @@ func FillConfigFromFile(config *[]Configuration, filename string) (error) {
   
   //log.Println(viper.Get("Routes"))
   
-  //cc := []Configuration{}
-  
-  err = viper.UnmarshalKey("Routes", config)
+  _brokers := []BrokerConfig{}
+  err = viper.UnmarshalKey("Brokers", &_brokers)
   
   if err != nil {
-    return fmt.Errorf("Error when parsing config: %v", err)
+    return fmt.Errorf("Error when parsing Brokers: %v", err)
+  }
+  
+  brokers := map[string]BrokerConfig{}
+  for _, broker := range _brokers {
+    brokers[broker.Id] = broker
+  }
+  
+  log.Println("")
+  config.Brokers = brokers
+  
+  _workers := []WorkerConfig{}
+  err = viper.UnmarshalKey("Workers", &_workers)
+  
+  if err != nil {
+    return fmt.Errorf("Error when parsing Workers: %v", err)
+  }
+  
+  workers := map[string]WorkerConfig{}
+  for _, worker := range _workers {
+    workers[worker.Id] = worker
+  }
+  
+  config.Workers = workers
+  
+  err = viper.UnmarshalKey("Routes", &config.Routes)
+  
+  if err != nil {
+    return fmt.Errorf("Error when parsing Routes: %v", err)
+  }
+  
+  for _, route := range config.Routes {
+    
+    _, hasBroker := brokers[route.Broker]
+    _, hasWorker := workers[route.Worker]
+    
+    if !hasWorker || !hasBroker {
+      return fmt.Errorf("Config for route %s is not valid", route.Name)
+    }
+    
   }
   
   return nil
   
-} 
+}

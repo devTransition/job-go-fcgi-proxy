@@ -8,49 +8,26 @@ import (
 
 type AmqpConnection struct {
   conn    *amqp.Connection
-  channel *amqp.Channel
 }
 
-func NewAmqpConnection(uri string, prefetchCount int) (*AmqpConnection, error) {
-
-  c := &AmqpConnection{
-    conn: nil,
-    channel: nil,
-  }
-
+func NewAmqpConnection(config *BrokerConfig) (*AmqpConnection, error) {
+  
+  uri := "amqp://" + config.User + ":" + config.Password+ "@" + config.Host 
+  c := &AmqpConnection{conn: nil}
+  
   var err error
-
-  log.Printf("dialing %q", uri)
+  
+  log.Printf("Broker %q dialing to %q", config.Id, uri)
   c.conn, err = amqp.Dial(uri)
-
+  
   if err != nil {
-    return nil, fmt.Errorf("Dial: %s", err)
+    return nil, fmt.Errorf("Broker %v dial error: %s", config, err)
   }
 
   go func() {
     fmt.Printf("closing: %s", <-c.conn.NotifyClose(make(chan *amqp.Error)))
   }()
-
-  log.Printf("got Connection, getting Channel")
-  c.channel, err = c.conn.Channel()
-  if err != nil {
-    return nil, fmt.Errorf("Channel: %s", err)
-  }
-
-  err = c.channel.Qos(
-    prefetchCount, // prefetch count
-    0, // prefetch size
-    false, // global
-  )
-
-  if err != nil {
-    return nil, fmt.Errorf("Failed to set QoS")
-  }
   
-  if err := c.channel.Confirm(false); err != nil {
-    return nil, fmt.Errorf("Channel could not be put into confirm mode: %s", err)
-  }
-
   return c, nil
 
 }

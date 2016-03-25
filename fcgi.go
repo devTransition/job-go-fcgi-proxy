@@ -3,6 +3,8 @@ package main
 import (
   "log"
   "os"
+  "os/signal"
+  "syscall"
   "sync"
   "time"
   "github.com/codegangsta/cli"
@@ -53,67 +55,73 @@ func runApp(c *cli.Context) {
   
   configSource := c.String("config")
   
-  proxyConfigs := []proxy.Configuration{}
+  serviceConfig := proxy.ServiceConfig{}
   
   if configSource == "" {
     
-    config := proxy.Configuration{
-      InstanceName:c.String("instance-name"),
-      
-      AmqpHost:c.String("amqp-host"),
-      AmqpPassword:c.String("amqp-password"),
-      AmqpPrefetchCount:c.Int("amqp-prefetch-count"),
-      AmqpQueue:c.String("amqp-queue"),
-      AmqpUser:c.String("amqp-user"),
-      
-      FcgiHost:c.String("fcgi-host"),
-      FcgiRequestUri:c.String("fcgi-request-uri"),
-      FcgiScriptFilename:c.String("fcgi-script-filename"),
-      FcgiScriptName:c.String("fcgi-script-name"),
-      FcgiServerProtocol:c.String("fcgi-server-protocol"),
-      FcgiTimeout:c.Int("fcgi-timeout"),
-    }
-    
-    proxyConfigs = append(proxyConfigs, config)
-    //log.Print(proxyConfigs)
+    proxy.FillServiceConfigFromCli(&serviceConfig, c)
     
   } else {
     
-    // TODO load configuration from file
-    err := proxy.FillConfigFromFile(&proxyConfigs, configSource)
+    err := proxy.FillServiceConfigFromFile(&serviceConfig, configSource)
     if err != nil {
       log.Fatalf("%s", err)
     }
     
   }
   
-  if len(proxyConfigs) == 0 {
+  //log.Print(serviceConfig)
+  
+  if len(serviceConfig.Routes) == 0 {
     log.Fatalln("No configuration provided")
     //log.Print(proxyConfigs)
   }
   
-  proxies := []proxy.ProxyInstance{}
+  brokers := map[proxy.BrokerConfig]*proxy.AmqpConnection{}
+  routes := map[proxy.RouteConfig]*proxy.Route{}
   
   var err error
-  for _, config := range proxyConfigs {
+  for _, routeConfig := range serviceConfig.Routes {
     
-    log.Print(config)
-    proxy, _err := proxy.Create(&config)
+    brokerConfig := serviceConfig.Brokers[routeConfig.Broker]
+    broker, hasBroker := brokers[brokerConfig]
+    if !hasBroker {
+      broker, err = proxy.NewAmqpConnection(&brokerConfig)
+      if err != nil {
+        break
+      }
+      brokers[brokerConfig] = broker
+    }
     
+    workerConfig := serviceConfig.Workers[routeConfig.Worker]
+    
+    route, _err := proxy.CreateRoute(broker, &routeConfig, &workerConfig)
     if _err != nil {
       err = _err
       break
-    } else {
-      proxies = append(proxies, *proxy)
     }
-    
+    routes[routeConfig] = route
   }
   
-  //log.Print(proxies)
+  log.Printf("%v", brokers)
+  log.Printf("%v", routes)
   
   if err != nil {
     log.Fatalf("%s", err)
   }
+  
+  //log.Fatalln("Debug stop")
+  
+  // Shutdown on sigterm
+  sigs := make(chan os.Signal, 1)
+  signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+  
+  go func(routes *map[proxy.RouteConfig]*proxy.Route, brokers *map[proxy.BrokerConfig]*proxy.AmqpConnection) {
+    sig := <-sigs
+    log.Printf("Got shutdown signal %v", sig)
+    shutdown(routes, brokers)
+    os.Exit(0)
+	}(&routes, &brokers)
   
   var wg sync.WaitGroup
   
@@ -126,21 +134,59 @@ func runApp(c *cli.Context) {
 
   wg.Wait()
   
-  for _, proxy := range proxies {
-    
-    if err := proxy.Shutdown(); err != nil {
-      log.Fatalf("Error during Proxy shutdown: %s", err)
-    }
-    
+  shutdown(&routes, &brokers)
+  
+}
+
+func shutdown(routes *map[proxy.RouteConfig]*proxy.Route, brokers *map[proxy.BrokerConfig]*proxy.AmqpConnection) {
+  
+  var err error
+  
+  err = shutdownRoutes(routes)
+  
+  if err != nil {
+    log.Fatalf("%s", err)
+  }
+  
+  err = shutdownBrokers(brokers)
+  
+  if err != nil {
+    log.Fatalf("%s", err)
   }
   
   println("Shutdown success")
   
 }
 
-func waitShutdown(lifetime int) {
+func shutdownRoutes(routes *map[proxy.RouteConfig]*proxy.Route) (err error) {
   
-  // TODO add option here to exit on signal
+  for _, route := range *routes {
+    
+    if err = route.Shutdown(); err != nil {
+      err = fmt.Errorf("Shutdown error: %s", err)
+    }
+    
+  }
+  
+  return err
+  
+}
+
+func shutdownBrokers(brokers *map[proxy.BrokerConfig]*proxy.AmqpConnection) (err error) {
+  
+  for _, broker := range *brokers {
+    
+    if err = broker.Shutdown(); err != nil {
+      err = fmt.Errorf("Shutdown error: %s", err)
+    }
+    
+  }
+  
+  return err
+  
+}
+
+func waitShutdown(lifetime int) {
   
   if lifetime > 0 {
     time.Sleep(time.Second * time.Duration(lifetime))

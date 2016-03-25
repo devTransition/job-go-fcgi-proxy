@@ -1,32 +1,34 @@
 {
+  "Brokers": [
+    {
+      "Id": "main",
+      "Type": "rabbitmq",
+      "Host": "192.168.99.100",
+      "User": "guest",
+      "Password": "guest"
+    }
+  ],
+  
+  "Workers": [
+    {
+      "Id": "mainworker",
+      "Type": "fastcgi",
+      "Host": "192.168.99.100:9000",
+      "Timeout": 5,
+      "ServerProtocol": "HTTP/1.1",
+      "ScriptName": "/app/process.php",
+      "ScriptFilename": "/app/process.php",
+      "RequestUri": "/app/process.php/job/process"
+    }
+  ],
+  
   "Routes": [
     {
-      "InstanceName" : "instance-name1",
-      "AmqpHost": "192.168.99.100",
-      "AmqpUser": "guest",
-      "AmqpPassword": "guest",
-      "AmqpQueue": "rpc_queue",
-      "AmqpPrefetchCount": 5,
-      "FcgiHost":"192.168.99.100:9000",
-      "FcgiTimeout":5,
-      "FcgiServerProtocol":"HTTP/1.1",
-      "FcgiScriptName":"/app/process.php",
-      "FcgiScriptFilename":"/app/process.php",
-      "FcgiRequestUri":"/app/process.php/job/process"
-    },
-    {
-      "InstanceName" : "instance-name2",
-      "AmqpHost": "192.168.99.100",
-      "AmqpUser": "guest",
-      "AmqpPassword": "guest",
-      "AmqpQueue": "rpc_queue",
-      "AmqpPrefetchCount": 5,
-      "FcgiHost":"192.168.99.100:9000",
-      "FcgiTimeout":5,
-      "FcgiServerProtocol":"HTTP/1.1",
-      "FcgiScriptName":"/app/process.php",
-      "FcgiScriptFilename":"/app/process.php",
-      "FcgiRequestUri":"/app/process.php/job/process"
+      "Name" : "instance-name1",
+      "Broker": "main",
+      "Worker": "mainworker",
+      "Queue": "rpc_queue",
+      "PrefetchCount": 5
     }
   ]
 }
