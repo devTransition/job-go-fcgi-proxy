@@ -164,6 +164,7 @@ func shutdownRoutes(routes *map[proxy.RouteConfig]*proxy.Route) (err error) {
     
     if err = route.Shutdown(); err != nil {
       err = fmt.Errorf("Shutdown error: %s", err)
+      break
     }
     
   }
@@ -178,6 +179,7 @@ func shutdownBrokers(brokers *map[proxy.BrokerConfig]*proxy.AmqpConnection) (err
     
     if err = broker.Shutdown(); err != nil {
       err = fmt.Errorf("Shutdown error: %s", err)
+      break
     }
     
   }
