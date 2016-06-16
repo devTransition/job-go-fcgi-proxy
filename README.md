@@ -32,3 +32,6 @@ Supported config formats: JSON, TOML, YAML and HCL, see [https://github.com/spf1
 ## TO-DO
 https://github.com/pquerna/ffjson
 
+## FastCGI docs
+https://easyengine.io/tutorials/php/directly-connect-php-fpm/
+
