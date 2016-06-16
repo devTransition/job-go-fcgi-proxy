@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -109,31 +108,28 @@ func runApp(c *cli.Context) {
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
-
-	//log.Fatalln("Debug stop")
-
+	
+	waitShutdown := make(chan error)
+	
 	// Shutdown on sigterm
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	sysigs := make(chan os.Signal, 1)
+	signal.Notify(sysigs, syscall.SIGINT, syscall.SIGTERM)
 
-	go func(routes *map[proxy.RouteConfig]*proxy.Route, brokers *map[proxy.BrokerConfig]*proxy.AmqpConnection) {
+	go func(sigs chan os.Signal, done chan error) {
 		sig := <-sigs
 		log.Printf("Got shutdown signal %v", sig)
-		shutdown(routes, brokers)
-		os.Exit(0)
-	}(&routes, &brokers)
-
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-
-	go func() {
-		waitShutdown(lifetime)
-		wg.Done()
-	}()
-
-	wg.Wait()
-
+		done <- nil
+	}(sysigs, waitShutdown)
+	
+	go func(done chan error) {
+		lifetimeShutdown(lifetime)
+		log.Printf("Shutdown on lifetime timeout: %v sec", lifetime)
+		done <- nil
+	}(waitShutdown)
+	
+	// wait for shutdown
+	<- waitShutdown
+	
 	shutdown(&routes, &brokers)
 
 }
@@ -154,7 +150,7 @@ func shutdown(routes *map[proxy.RouteConfig]*proxy.Route, brokers *map[proxy.Bro
 		log.Fatalf("%s", err)
 	}
 
-	println("Shutdown success")
+	log.Println("Shutdown success")
 
 }
 
@@ -188,7 +184,7 @@ func shutdownBrokers(brokers *map[proxy.BrokerConfig]*proxy.AmqpConnection) (err
 
 }
 
-func waitShutdown(lifetime int) {
+func lifetimeShutdown(lifetime int) {
 
 	if lifetime > 0 {
 		time.Sleep(time.Second * time.Duration(lifetime))
