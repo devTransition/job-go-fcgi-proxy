@@ -1,53 +1,53 @@
 package proxy
 
 import (
-  "fmt"
-  "log"
-  "github.com/streadway/amqp"
+	"fmt"
+	"github.com/streadway/amqp"
+	"log"
 )
 
 type Consumer struct {
-  channel  *amqp.Channel
-  tag      string
-  delivery <-chan amqp.Delivery
+	channel  *amqp.Channel
+	tag      string
+	delivery <-chan amqp.Delivery
 }
 
 func NewConsumer(channel *amqp.Channel, queue string, ctag string) (*Consumer, error) {
 
-  c := &Consumer{
-    channel: channel,
-    tag:     ctag,
-  }
+	c := &Consumer{
+		channel: channel,
+		tag:     ctag,
+	}
 
-  var err error
+	var err error
 
-  log.Printf("got Channel, starting Consume (consumer tag %q)", c.tag)
-  c.delivery, err = c.channel.Consume(
-    queue, // name
-    c.tag, // consumerTag,
-    false, // noAck
-    false, // exclusive
-    false, // noLocal
-    false, // noWait
-    nil, // arguments
-  )
+	log.Printf("got Channel, starting Consume (consumer tag %q)", c.tag)
+	c.delivery, err = c.channel.Consume(
+		queue, // name
+		c.tag, // consumerTag,
+		false, // noAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // arguments
+	)
 
-  if err != nil {
-    return nil, fmt.Errorf("Queue Consume: %s", err)
-  }
+	if err != nil {
+		return nil, fmt.Errorf("Queue Consume: %s", err)
+	}
 
-  return c, nil
+	return c, nil
 
 }
 
 func (c *Consumer) Shutdown() error {
-  // will close() the deliveries channel
-  
-  defer log.Printf("AMQP consumer [%q] shutdown OK", c.tag)
+	// will close() the deliveries channel
 
-  if err := c.channel.Cancel(c.tag, true); err != nil {
-    return fmt.Errorf("Consumer cancel failed: %s", err)
-  }
+	defer log.Printf("AMQP consumer [%q] shutdown OK", c.tag)
 
-  return nil
+	if err := c.channel.Cancel(c.tag, true); err != nil {
+		return fmt.Errorf("Consumer cancel failed: %s", err)
+	}
+
+	return nil
 }

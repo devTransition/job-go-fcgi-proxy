@@ -1,61 +1,58 @@
 package proxy
 
 import (
-  "log"
-  "sync"
-  "github.com/streadway/amqp"
+	"github.com/streadway/amqp"
+	"log"
+	"sync"
 )
 
 type Dispatcher struct {
-  jobQueue <-chan amqp.Delivery
-  worker   Worker
-  done     chan error
+	jobQueue <-chan amqp.Delivery
+	worker   Worker
+	done     chan error
 }
 
 func NewDispatcher(jobQueue <-chan amqp.Delivery, worker Worker) *Dispatcher {
-  return &Dispatcher{
-    jobQueue: jobQueue,
-    worker: worker,
-    done:    make(chan error),
-  }
+	return &Dispatcher{
+		jobQueue: jobQueue,
+		worker:   worker,
+		done:     make(chan error),
+	}
 }
 
 func (d *Dispatcher) Run() {
-  go d.dispatch()
+	go d.dispatch()
 }
 
 func (d *Dispatcher) dispatch() {
 
-  var wg sync.WaitGroup
+	var wg sync.WaitGroup
 
-  for job := range d.jobQueue {
+	for job := range d.jobQueue {
 
-    //log.Printf("DeliveryTag: %v", job.DeliveryTag)
-    wg.Add(1)
+		//log.Printf("DeliveryTag: %v", job.DeliveryTag)
+		wg.Add(1)
 
-    go func(job amqp.Delivery) {
-      d.worker.work(job)
-      wg.Done()
-    }(job)
-    
+		go func(job amqp.Delivery) {
+			d.worker.work(job)
+			wg.Done()
+		}(job)
 
-  }
+	}
 
-  wg.Wait()
-  d.done <- nil
+	wg.Wait()
+	d.done <- nil
 
 }
 
 func (d *Dispatcher) Shutdown() error {
 
-  defer log.Printf("Dispatcher shutdown OK")
+	defer log.Printf("Dispatcher shutdown OK")
 
-  return <-d.done
+	return <-d.done
 
 }
 
 type Worker interface {
-
-  work(amqp.Delivery) error
-
+	work(amqp.Delivery) error
 }

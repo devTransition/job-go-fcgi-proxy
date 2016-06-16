@@ -1,9 +1,9 @@
 package util
 
 import (
-  "reflect"
-  "fmt"
-  "errors"
+	"errors"
+	"fmt"
+	"reflect"
 )
 
 func SetField(obj interface{}, name string, value interface{}) error {
