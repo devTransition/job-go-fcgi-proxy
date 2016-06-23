@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"time"
+	"strings"
 )
 
 type ErrorMessage struct {
@@ -27,11 +28,11 @@ type FcgiWorker struct {
 	amqpChannel *amqp.Channel
 	fcgiHost    string
 	fcgiTimeout time.Duration
-	fcgiParams  map[string]string
+	fcgiParams  *map[string]string
 	confirms    <-chan amqp.Confirmation
 }
 
-func NewFcgiWorker(amqpChannel *amqp.Channel, fcgiHost string, fcgiTimeout time.Duration, fcgiParams map[string]string) *FcgiWorker {
+func NewFcgiWorker(amqpChannel *amqp.Channel, fcgiHost string, fcgiTimeout time.Duration, fcgiParams *map[string]string) *FcgiWorker {
 
 	return &FcgiWorker{
 		amqpChannel: amqpChannel,
@@ -99,7 +100,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 	fcgiParams := make(map[string]string)
 
 	// copy fcgi params from options
-	for k, v := range w.fcgiParams {
+	for k, v := range *w.fcgiParams {
 		fcgiParams[k] = v
 	}
 
@@ -120,7 +121,10 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 	body["app_id"] = delivery.AppId
 	body["body"] = deliveryJson
 	bodyJson, err := json.Marshal(body)
-
+	
+	// TODO debug
+	log.Printf("fcgi body: %q", body)
+	
 	rd := bytes.NewReader(bodyJson)
 	resp, err := fcgi.Post(fcgiParams, "application/x-json", rd, rd.Len())
 
@@ -224,16 +228,16 @@ func (w *FcgiWorker) publishReply(delivery *amqp.Delivery, body []byte, ack bool
 	}
 
 	var confirmed amqp.Confirmation
-
-	//log.Printf("Publishing %q", delivery.CorrelationId)
-	//confirms := w.amqpChannel.NotifyPublish(make(chan amqp.Confirmation, 1))
-
+	
+	// TODO debug
+	log.Printf("Publishing reply %q", msg.Body)
+	
 	w.amqpChannel.Publish("", delivery.ReplyTo, false, false, msg)
 
 	if confirmed = <-w.confirms; confirmed.Ack {
-		//log.Printf("Published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
+		log.Printf("Published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
 	} else {
-		//log.Printf("Not published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
+		log.Printf("Not published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
 	}
 
 	//log.Printf("%q", w.amqpChannel)
@@ -251,4 +255,26 @@ func (w *FcgiWorker) publishReply(delivery *amqp.Delivery, body []byte, ack bool
 
 	return nil
 
+}
+
+func CreateFcgiParams(config *RouteConfig, workerConfig *WorkerConfig) *map[string]string {
+	
+	fcgiHostAddr, fcgiHostPort := strings.Split(workerConfig.Host, ":")[0], strings.Split(workerConfig.Host, ":")[1]
+
+	fcgiParams := make(map[string]string)
+
+	fcgiParams["SERVER_PROTOCOL"] = workerConfig.ServerProtocol
+
+	fcgiParams["SERVER_ADDR"] = fcgiHostAddr
+	fcgiParams["SERVER_PORT"] = fcgiHostPort
+	fcgiParams["SERVER_NAME"] = config.Name + ".job-go-fcgi-proxy.local"
+
+	fcgiParams["REMOTE_ADDR"] = "127.0.0.1"
+	fcgiParams["REMOTE_PORT"] = fcgiHostPort
+
+	fcgiParams["SCRIPT_NAME"] = workerConfig.ScriptName
+	fcgiParams["SCRIPT_FILENAME"] = workerConfig.ScriptFilename
+	fcgiParams["REQUEST_URI"] = workerConfig.RequestUri
+	
+	return &fcgiParams
 }

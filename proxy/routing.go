@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/streadway/amqp"
 	"log"
-	"strings"
 	"time"
 )
 
@@ -78,24 +77,8 @@ func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConf
 	}
 
 	fcgiTimeout := time.Duration(workerConfig.Timeout) * time.Second
-	fcgiHostAddr, fcgiHostPort := strings.Split(workerConfig.Host, ":")[0], strings.Split(workerConfig.Host, ":")[1]
-
-	fcgiParams := make(map[string]string)
-
-	fcgiParams["SERVER_PROTOCOL"] = workerConfig.ServerProtocol
-
-	fcgiParams["SERVER_ADDR"] = fcgiHostAddr
-	fcgiParams["SERVER_PORT"] = fcgiHostPort
-	fcgiParams["SERVER_NAME"] = config.Name + ".job-go-fcgi-proxy.local"
-
-	fcgiParams["REMOTE_ADDR"] = "127.0.0.1"
-	fcgiParams["REMOTE_PORT"] = fcgiHostPort
-
-	fcgiParams["SCRIPT_NAME"] = workerConfig.ScriptName
-	fcgiParams["SCRIPT_FILENAME"] = workerConfig.ScriptFilename
-	fcgiParams["REQUEST_URI"] = workerConfig.RequestUri
-
-	//ch, err := amqpConnection.conn.Channel()
+	fcgiParams := CreateFcgiParams(config, workerConfig)
+	
 	worker := NewFcgiWorker(channel, workerConfig.Host, fcgiTimeout, fcgiParams)
 
 	dispatcher := NewDispatcher(consumer.delivery, worker)
