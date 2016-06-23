@@ -25,28 +25,24 @@ func NewErrorMessage(details string) *ErrorMessage {
 }
 
 type FcgiWorker struct {
-	amqpChannel *amqp.Channel
 	fcgiHost    string
 	fcgiTimeout time.Duration
 	fcgiParams  *map[string]string
-	confirms    <-chan amqp.Confirmation
 }
 
-func NewFcgiWorker(amqpChannel *amqp.Channel, fcgiHost string, fcgiTimeout time.Duration, fcgiParams *map[string]string) *FcgiWorker {
+func NewFcgiWorker(fcgiHost string, fcgiTimeout time.Duration, fcgiParams *map[string]string) *FcgiWorker {
 
 	return &FcgiWorker{
-		amqpChannel: amqpChannel,
 		fcgiHost:    fcgiHost,
 		fcgiTimeout: fcgiTimeout,
 		fcgiParams:  fcgiParams,
-		confirms:    amqpChannel.NotifyPublish(make(chan amqp.Confirmation, 1)),
 	}
 
 }
 
-func (w *FcgiWorker) work(delivery amqp.Delivery) error {
+func (w *FcgiWorker) work(delivery *amqp.Delivery) (result []byte, reply bool, err error) {
 
-	skipReply := delivery.CorrelationId == "" || delivery.ReplyTo == ""
+	reply = delivery.CorrelationId != "" && delivery.ReplyTo != ""
 
 	/*
 	  log.Printf(
@@ -60,21 +56,13 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 
 	// check for valid input from amqp
 	var deliveryJson map[string]interface{}
-	err := json.Unmarshal(delivery.Body, &deliveryJson)
+	err = json.Unmarshal(delivery.Body, &deliveryJson)
 
 	if err != nil {
 
-		err = fmt.Errorf("Amqp message body not valid: %s", string(delivery.Body))
-
-		if skipReply {
-			// don't publish error when reply skipped
-			log.Println(err)
-			delivery.Nack(false, false)
-			return nil
-		}
-
-		return w.publishReplyError(&delivery, err)
-
+		err = fmt.Errorf("Amqp message body not valid: %s, %s", string(delivery.Body), err)
+		return
+		
 	}
 
 	// TODO ? handle errors when fcgi.max_children reached, looks like don't need it because of fcgi internal queue
@@ -84,15 +72,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 	if err != nil {
 
 		err = fmt.Errorf("FCGI connection failed: %s", err)
-
-		if skipReply {
-			// don't publish error when reply skipped
-			log.Println(err)
-			delivery.Nack(false, false)
-			return nil
-		}
-
-		return w.publishReplyError(&delivery, err)
+		return
 	}
 
 	defer fcgi.Close()
@@ -106,7 +86,7 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 
 	//log.Printf("fcgiParams: %q", fcgiParams)
 
-	// TODO error if routingKey is not set
+	// TODO error if routingKey is not set?
 
 	/*
 	 * {
@@ -131,60 +111,33 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 	if err != nil {
 		// get this error when fcgi script doesn't exist
 		//log.Println(err.Error() == "malformed MIME header line: Primary script unknown")
-
 		err = fmt.Errorf("FCGI script failed: %s", err)
-
-		if skipReply {
-			// don't publish error when reply skipped
-			log.Println(err)
-			delivery.Nack(false, false)
-			return nil
-		}
-
-		return w.publishReplyError(&delivery, err)
+		return
 
 	}
 
 	defer resp.Body.Close()
 
-	content, err := ioutil.ReadAll(resp.Body)
+	result, err = ioutil.ReadAll(resp.Body)
 
 	if err != nil {
 
 		err = fmt.Errorf("FCGI error: %s", err)
-
-		if skipReply {
-			// don't publish error when reply skipped
-			log.Println(err)
-			delivery.Nack(false, false)
-			return nil
-		}
-
-		return w.publishReplyError(&delivery, err)
+		return
 
 	}
 
 	var response map[string]interface{}
-	err = json.Unmarshal(content, &response)
+	err = json.Unmarshal(result, &response)
 
 	if err != nil {
 
-		err = fmt.Errorf("FCGI response not valid: %s", string(content))
-
-		if skipReply {
-			// don't publish error when reply skipped
-			log.Println(err)
-			delivery.Nack(false, false)
-			return nil
-		}
-
-		return w.publishReplyError(&delivery, err)
+		err = fmt.Errorf("FCGI response not valid: %s, %s", string(result), err)
+		return
 
 	}
 
 	//log.Printf("%q %q", string(content), resp.Header["Content-type"])
-	//string(content)
-
 	//log.Printf("%q", string(content))
 
 	/*
@@ -192,68 +145,8 @@ func (w *FcgiWorker) work(delivery amqp.Delivery) error {
 	    log.Printf("%q\t:\t%q", k, v)
 	  }
 	*/
-
-	// func (me *Channel) Publish(exchange, key string, mandatory, immediate bool, msg Publishing) error
-
-	if skipReply {
-		// skip reply, just get success result from fcgi and ack the message
-		// TODO do we need to log errors here or publish to separate queue?
-		delivery.Ack(false)
-		return nil
-	}
-
-	// proceed with publishing result from fcgi to amqp reply
-
-	return w.publishReply(&delivery, content, true)
-
-}
-
-func (w *FcgiWorker) publishReplyError(delivery *amqp.Delivery, err error) error {
-
-	log.Println(fmt.Sprintf("Proxy: %s", err))
-	body := NewErrorMessage(fmt.Sprintf("Proxy: %s", err))
-	//log.Printf("bodyJson: %q", body);
-	bodyJson, _ := json.Marshal(body)
-	//log.Printf("bodyJson: %q", bodyJson);
-
-	return w.publishReply(delivery, bodyJson, false)
-}
-
-func (w *FcgiWorker) publishReply(delivery *amqp.Delivery, body []byte, ack bool) error {
-
-	msg := amqp.Publishing{
-		CorrelationId: delivery.CorrelationId,
-		ContentType:   "application/x-json",
-		Body:          body,
-	}
-
-	var confirmed amqp.Confirmation
 	
-	// TODO debug
-	log.Printf("Publishing reply %q", msg.Body)
-	
-	w.amqpChannel.Publish("", delivery.ReplyTo, false, false, msg)
-
-	if confirmed = <-w.confirms; confirmed.Ack {
-		log.Printf("Published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
-	} else {
-		log.Printf("Not published to AMQP, %q, %d", delivery.CorrelationId, confirmed.DeliveryTag)
-	}
-
-	//log.Printf("%q", w.amqpChannel)
-	//log.Printf("--------------------------")
-
-	//time.Sleep(time.Second*10)
-
-	//log.Printf("[%v] acking %q", delivery.DeliveryTag, delivery.CorrelationId)
-
-	if ack {
-		delivery.Ack(false)
-	} else {
-		delivery.Nack(false, false)
-	}
-
-	return nil
+	return
 
 }
 

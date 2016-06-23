@@ -79,9 +79,9 @@ func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConf
 	fcgiTimeout := time.Duration(workerConfig.Timeout) * time.Second
 	fcgiParams := CreateFcgiParams(config, workerConfig)
 	
-	worker := NewFcgiWorker(channel, workerConfig.Host, fcgiTimeout, fcgiParams)
+	worker := NewFcgiWorker(workerConfig.Host, fcgiTimeout, fcgiParams)
 
-	dispatcher := NewDispatcher(consumer.delivery, worker)
+	dispatcher := NewDispatcher(consumer.delivery, worker, channel)
 	dispatcher.Run()
 
 	route := &Route{
