@@ -1,5 +1,49 @@
 # Go amqp-fcgi proxy 
-    
+
+Service connects to amqp server and consumes messages from specified queue to run php workers using FastCGI connection.
+
+Sample yaml configuration (json supported too):
+
+```yaml
+# descibe amqp connections, if no routes using broker, the connection won't be created
+Brokers:
+ -
+     Id: "main"
+     Type: "rabbitmq"
+     Host: "192.168.99.100"
+     User: "guest"
+     Password: "guest"
+     
+
+# describe php workers
+Workers:
+ -
+     Id: "mainworker"
+     Type: "fastcgi"
+     Host: "192.168.99.100:9000"
+     Timeout: 5
+     ServerProtocol: "HTTP/1.1"
+     ScriptName: "/app/process.php"
+     ScriptFilename: "/app/process.php"
+     RequestUri: "/app/process.php/job/process"
+
+# descibe the routes, define amqp connection with queue to consume from and php worker to process messages 
+Routes:
+ -
+     Name: "rpc-main" # NOTE! domain-like unique name, used as SERVER_NAME fcgi parameter 
+     Broker: "main"
+     Worker: "mainworker"
+     Queue: "rpc_queue"
+     PrefetchCount: 5
+```
+
+Notes: 
+  
+  - If amqp delivery contains `correlationId` and `replyTo` fields, the result/error recieved from php worker will be published to defined queue.
+  - Ampq delivery is acked/nacked after worker job has been finished, result if any have been recieved and reply if defined have been sent
+  - Scenario when reply have been published and connection is reset-by-peer before ack/nack is possible. Delivery will be returned to the queue. 
+
+
 ## run RabbitMQ
 
     docker run -d --hostname my-rabbit --name some-rabbit -p 15672:15672 -p 5672:5672 rabbitmq:3-management

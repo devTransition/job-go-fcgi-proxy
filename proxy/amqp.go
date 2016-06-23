@@ -25,7 +25,7 @@ func NewAmqpConnection(config *BrokerConfig) (*AmqpConnection, error) {
 	}
 
 	go func() {
-		fmt.Printf("closing: %s", <-c.conn.NotifyClose(make(chan *amqp.Error)))
+		log.Printf("Broker: closing: %s", <-c.conn.NotifyClose(make(chan *amqp.Error)))
 	}()
 
 	return c, nil

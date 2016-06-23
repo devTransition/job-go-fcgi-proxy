@@ -39,10 +39,14 @@ func (d *Dispatcher) dispatch() {
 		}(job)
 
 	}
-
+	
 	wg.Wait()
+	
+	log.Printf("Dispatcher: Job queue closed")
 	d.done <- nil
-
+	
+	//defer log.Printf("Dispatcher finished. Job queue closed 4")
+	
 }
 
 func (d *Dispatcher) Shutdown() error {
