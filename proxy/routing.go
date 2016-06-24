@@ -43,15 +43,15 @@ func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConf
 	log.Printf("Creating route: %v", config)
 
 	channel, err := amqpConnection.conn.Channel()
-	
+
 	go func() {
 		// not nil when amqp connection broken
 		log.Printf("Route: closing channel: %s", <-channel.NotifyClose(make(chan *amqp.Error)))
 	}()
-	
+
 	// TODO add open/close connection handlers to re-create route on reconnect
 	// TODO before re-creating the route on amqp reconnect we need to wait for workers from old one
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("Route %v channel: %s", config, err)
 	}
@@ -78,7 +78,7 @@ func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConf
 
 	fcgiTimeout := time.Duration(workerConfig.Timeout) * time.Second
 	fcgiParams := CreateFcgiParams(config, workerConfig)
-	
+
 	worker := NewFcgiWorker(workerConfig.Host, fcgiTimeout, fcgiParams)
 
 	dispatcher := NewDispatcher(consumer.delivery, worker, channel)
