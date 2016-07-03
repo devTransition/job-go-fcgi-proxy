@@ -8,8 +8,8 @@ import (
 	"github.com/tomasen/fcgi_client"
 	"io/ioutil"
 	"log"
-	"time"
 	"strings"
+	"time"
 )
 
 type ErrorMessage struct {
@@ -62,7 +62,7 @@ func (w *FcgiWorker) work(delivery *amqp.Delivery) (result []byte, reply bool, e
 
 		err = fmt.Errorf("Amqp message body not valid: %s, %s", string(delivery.Body), err)
 		return
-		
+
 	}
 
 	// TODO ? handle errors when fcgi.max_children reached, looks like don't need it because of fcgi internal queue
@@ -101,12 +101,16 @@ func (w *FcgiWorker) work(delivery *amqp.Delivery) (result []byte, reply bool, e
 	body["app_id"] = delivery.AppId
 	body["body"] = deliveryJson
 	bodyJson, err := json.Marshal(body)
-	
+
 	// TODO debug
 	log.Printf("fcgi body: %q", body)
-	
+
 	rd := bytes.NewReader(bodyJson)
 	resp, err := fcgi.Post(fcgiParams, "application/x-json", rd, rd.Len())
+
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 
 	if err != nil {
 		// get this error when fcgi script doesn't exist
@@ -115,8 +119,6 @@ func (w *FcgiWorker) work(delivery *amqp.Delivery) (result []byte, reply bool, e
 		return
 
 	}
-
-	defer resp.Body.Close()
 
 	result, err = ioutil.ReadAll(resp.Body)
 
@@ -145,13 +147,13 @@ func (w *FcgiWorker) work(delivery *amqp.Delivery) (result []byte, reply bool, e
 	    log.Printf("%q\t:\t%q", k, v)
 	  }
 	*/
-	
+
 	return
 
 }
 
 func CreateFcgiParams(config *RouteConfig, workerConfig *WorkerConfig) *map[string]string {
-	
+
 	fcgiHostAddr, fcgiHostPort := strings.Split(workerConfig.Host, ":")[0], strings.Split(workerConfig.Host, ":")[1]
 
 	fcgiParams := make(map[string]string)
@@ -168,6 +170,6 @@ func CreateFcgiParams(config *RouteConfig, workerConfig *WorkerConfig) *map[stri
 	fcgiParams["SCRIPT_NAME"] = workerConfig.ScriptName
 	fcgiParams["SCRIPT_FILENAME"] = workerConfig.ScriptFilename
 	fcgiParams["REQUEST_URI"] = workerConfig.RequestUri
-	
+
 	return &fcgiParams
 }

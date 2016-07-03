@@ -7,9 +7,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
+
+var mutex sync.Mutex
 
 func main() {
 
@@ -77,13 +80,14 @@ func runApp(c *cli.Context) {
 	}
 
 	brokers := map[proxy.BrokerConfig]*proxy.AmqpConnection{}
-	routes := map[proxy.RouteConfig]*proxy.Route{}
+	routes := map[proxy.BrokerConfig]map[proxy.RouteConfig]*proxy.Route{}
 
 	var err error
 	for _, routeConfig := range serviceConfig.Routes {
 
 		brokerConfig := serviceConfig.Brokers[routeConfig.Broker]
 		broker, hasBroker := brokers[brokerConfig]
+
 		if !hasBroker {
 			broker, err = proxy.NewAmqpConnection(&brokerConfig)
 			if err != nil {
@@ -92,25 +96,95 @@ func runApp(c *cli.Context) {
 			brokers[brokerConfig] = broker
 		}
 
-		workerConfig := serviceConfig.Workers[routeConfig.Worker]
+		brokerRoutes, hasBrokerRoutes := routes[brokerConfig]
 
-		route, _err := proxy.CreateRoute(broker, &routeConfig, &workerConfig)
-		if _err != nil {
-			err = _err
-			break
+		if !hasBrokerRoutes {
+			brokerRoutes = map[proxy.RouteConfig]*proxy.Route{}
+			routes[brokerConfig] = brokerRoutes
 		}
-		routes[routeConfig] = route
+
+		brokerRoutes[routeConfig] = nil
+
 	}
 
-	log.Printf("%v", brokers)
-	log.Printf("%v", routes)
+	// Note: "closing" here is unexpected termination (connection loss), "shutdown" is the result of graceful exit
+
+	for brokerConfig := range routes {
+
+		broker := brokers[brokerConfig]
+		//log.Printf("Broker: %v", broker)
+
+		// subscribe for broker connection open
+		op := broker.NotifyOpen(make(chan *proxy.AmqpConnection))
+
+		go func() {
+
+			for range op {
+
+				// re-create routes every time when broker connection is opened
+
+				mutex.Lock()
+
+				brokerRoutes := routes[brokerConfig]
+
+				for routeConfig := range brokerRoutes {
+
+					route := brokerRoutes[routeConfig]
+
+					// remove old route from map
+					// brokerRoutes[routeConfig] = nil
+
+					// create route
+					workerConfig := serviceConfig.Workers[routeConfig.Worker]
+					route, err := proxy.CreateRoute(broker, &routeConfig, &workerConfig)
+
+					if err != nil {
+						// TODO handle route creating errors
+						log.Printf("%s", err)
+					}
+
+					// save new route to map
+					brokerRoutes[routeConfig] = route
+
+				}
+
+				log.Printf("Broker routes created: %v", broker)
+
+				mutex.Unlock()
+
+				for routeConfig := range brokerRoutes {
+
+					route := brokerRoutes[routeConfig]
+					if route != nil {
+
+						route.WaitClosed()
+
+					}
+
+				}
+
+				broker.Open()
+
+			}
+
+			log.Printf("Brokers: %v", brokers)
+			// should finish when op channel closed
+
+		}()
+
+		broker.Open()
+
+	}
+
+	log.Printf("Brokers: %v", brokers)
+	log.Printf("Routes: %v", routes)
 
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
-	
+
 	waitShutdown := make(chan error)
-	
+
 	// Shutdown on sigterm
 	sysigs := make(chan os.Signal, 1)
 	signal.Notify(sysigs, syscall.SIGINT, syscall.SIGTERM)
@@ -120,21 +194,23 @@ func runApp(c *cli.Context) {
 		log.Printf("Got shutdown signal %v", sig)
 		done <- nil
 	}(sysigs, waitShutdown)
-	
+
 	go func(done chan error) {
 		lifetimeShutdown(lifetime)
 		log.Printf("Shutdown on lifetime timeout: %v sec", lifetime)
 		done <- nil
 	}(waitShutdown)
-	
+
 	// wait for shutdown
-	<- waitShutdown
-	
+	<-waitShutdown
+
+	mutex.Lock()
 	shutdown(&routes, &brokers)
+	mutex.Unlock()
 
 }
 
-func shutdown(routes *map[proxy.RouteConfig]*proxy.Route, brokers *map[proxy.BrokerConfig]*proxy.AmqpConnection) {
+func shutdown(routes *map[proxy.BrokerConfig]map[proxy.RouteConfig]*proxy.Route, brokers *map[proxy.BrokerConfig]*proxy.AmqpConnection) {
 
 	var err error
 
@@ -152,15 +228,22 @@ func shutdown(routes *map[proxy.RouteConfig]*proxy.Route, brokers *map[proxy.Bro
 
 	log.Println("Shutdown success")
 
+	// TODO debug
+	// time.Sleep(time.Second * 10)
 }
 
-func shutdownRoutes(routes *map[proxy.RouteConfig]*proxy.Route) (err error) {
+func shutdownRoutes(routes *map[proxy.BrokerConfig]map[proxy.RouteConfig]*proxy.Route) (err error) {
 
-	for _, route := range *routes {
+	for _, brokerRoutes := range *routes {
 
-		if err = route.Shutdown(); err != nil {
-			err = fmt.Errorf("Shutdown error: %s", err)
-			break
+		for _, route := range brokerRoutes {
+
+			if route != nil {
+
+				route.Shutdown()
+
+			}
+
 		}
 
 	}

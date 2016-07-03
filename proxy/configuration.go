@@ -16,10 +16,10 @@ type Configuration struct {
 	AmqpUser          string
 	AmqpPassword      string
 	AmqpQueue         string
-	AmqpPrefetchCount int
+	AmqpPrefetchCount uint
 
 	FcgiHost           string
-	FcgiTimeout        int
+	FcgiTimeout        uint
 	FcgiServerProtocol string
 	FcgiScriptName     string
 	FcgiScriptFilename string

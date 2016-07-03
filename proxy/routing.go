@@ -13,41 +13,20 @@ type Route struct {
 	channel      *amqp.Channel
 	consumer     *Consumer
 	dispatcher   *Dispatcher
-}
-
-func (instance *Route) Shutdown() error {
-
-	// will shutdown Route
-
-	log.Printf("Route %q: Start shutdown ...", instance.config.Name)
-
-	defer log.Printf("Route %q: shutdown OK", instance.config.Name)
-
-	if err := instance.consumer.Shutdown(); err != nil {
-		return fmt.Errorf("Route %q: Error during AMQP consume shutdown: %s", instance.config.Name, err)
-	}
-
-	if err := instance.dispatcher.Shutdown(); err != nil {
-		return fmt.Errorf("Route %q: Error during Dispatcher shutdown: %s", instance.config.Name, err)
-	}
-
-	if err := instance.channel.Close(); err != nil {
-		return fmt.Errorf("Route %q: Error during AMQP Channel close: %s", instance.config.Name, err)
-	}
-
-	return nil
+	closed       chan *amqp.Error
 }
 
 func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConfig *WorkerConfig) (*Route, error) {
 
 	log.Printf("Creating route: %v", config)
-
 	channel, err := amqpConnection.conn.Channel()
 
-	go func() {
-		// not nil when amqp connection broken
-		log.Printf("Route: closing channel: %s", <-channel.NotifyClose(make(chan *amqp.Error)))
-	}()
+	/*
+		go func() {
+			// not nil when amqp connection broken
+			log.Printf("Route: closing channel: %s", <-channel.NotifyClose(make(chan *amqp.Error)))
+		}()
+	*/
 
 	// TODO add open/close connection handlers to re-create route on reconnect
 	// TODO before re-creating the route on amqp reconnect we need to wait for workers from old one
@@ -84,14 +63,68 @@ func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConf
 	dispatcher := NewDispatcher(consumer.delivery, worker, channel)
 	dispatcher.Run()
 
+	closing := amqpConnection.conn.NotifyClose(make(chan *amqp.Error, 1))
+
 	route := &Route{
 		config:       config,
 		workerConfig: workerConfig,
 		channel:      channel,
 		consumer:     consumer,
 		dispatcher:   dispatcher,
+		closed:       make(chan *amqp.Error, 1),
 	}
+
+	go func() {
+
+		err := <-closing
+
+		if err != nil {
+
+			// if not <nil> connection is broken
+
+			log.Printf("Route: closing start: %s", err)
+			// close channel, to release delivery channel for dispatcher
+			channel.Close()
+			// wait for job queue finish in dispatcher
+			<-dispatcher.NotifyFinished(make(chan error, 1))
+
+			log.Printf("Route: closed")
+
+			route.closed <- err
+
+		}
+
+	}()
 
 	return route, nil
 
+}
+
+func (instance *Route) WaitClosed() error {
+
+	return <-instance.closed
+
+}
+
+func (instance *Route) Shutdown() error {
+
+	// will shutdown Route
+
+	log.Printf("Route %q: Start shutdown ...", instance.config.Name)
+
+	defer log.Printf("Route %q: shutdown OK", instance.config.Name)
+
+	if err := instance.consumer.Shutdown(); err != nil {
+		log.Printf("Route %q: Error during AMQP consume shutdown: %s", instance.config.Name, err)
+	} else {
+
+		<-instance.dispatcher.NotifyFinished(make(chan error, 1))
+
+		if err := instance.channel.Close(); err != nil {
+			log.Printf("Route %q: Error during AMQP Channel close: %s", instance.config.Name, err)
+		}
+
+	}
+
+	return nil
 }

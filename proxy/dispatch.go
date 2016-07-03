@@ -9,11 +9,13 @@ import (
 )
 
 type Dispatcher struct {
-	jobQueue     <-chan amqp.Delivery
-	worker       Worker
-	replyChannel *amqp.Channel
-	confirms     <-chan amqp.Confirmation
-	done         chan error
+	jobQueue       <-chan amqp.Delivery
+	worker         Worker
+	replyChannel   *amqp.Channel
+	confirms       <-chan amqp.Confirmation
+	mutex          sync.Mutex
+	finishNotifies []chan error
+	noNotify       bool // true when we will never notify again
 }
 
 func NewDispatcher(jobQueue <-chan amqp.Delivery, worker Worker, replyChannel *amqp.Channel) *Dispatcher {
@@ -22,7 +24,6 @@ func NewDispatcher(jobQueue <-chan amqp.Delivery, worker Worker, replyChannel *a
 		worker:       worker,
 		replyChannel: replyChannel,
 		confirms:     replyChannel.NotifyPublish(make(chan amqp.Confirmation, 1)),
-		done:         make(chan error),
 	}
 }
 
@@ -73,8 +74,8 @@ func (d *Dispatcher) dispatch() {
 	wg.Wait()
 
 	log.Printf("Dispatcher: Job queue closed")
-	d.done <- nil
 
+	d.finish()
 	//defer log.Printf("Dispatcher finished. Job queue closed 4")
 
 }
@@ -121,11 +122,37 @@ func (d *Dispatcher) publishReply(delivery *amqp.Delivery, body []byte) {
 
 }
 
-func (d *Dispatcher) Shutdown() error {
+func (d *Dispatcher) NotifyFinished(ch chan error) chan error {
 
-	defer log.Printf("Dispatcher shutdown OK")
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
 
-	return <-d.done
+	if d.noNotify {
+		close(ch)
+	} else {
+		d.finishNotifies = append(d.finishNotifies, ch)
+	}
+
+	return ch
+}
+
+func (d *Dispatcher) finish() {
+
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	log.Printf("Dispatcher: finishing")
+	defer log.Printf("Dispatcher finish OK")
+
+	for _, ch := range d.finishNotifies {
+		ch <- nil
+	}
+
+	for _, ch := range d.finishNotifies {
+		close(ch)
+	}
+
+	d.noNotify = true
 
 }
 
