@@ -1,4 +1,4 @@
-package proxy
+package fcgiwork
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"log"
 	"strings"
 	"time"
+	"github.com/devTransition/job-go-fcgi-proxy/proxy"
 )
 
 type ErrorMessage struct {
@@ -22,6 +23,59 @@ type ErrorMessage struct {
 
 func NewErrorMessage(details string) *ErrorMessage {
 	return &ErrorMessage{Status: "error", Error: "ProductInternalException", ErrorDetails: details}
+}
+
+type FcgiWorkerConfig struct {
+	
+	Id             string
+	Type           string
+	Host           string
+	Timeout        int
+	ServerProtocol string
+	ScriptName     string
+	ScriptFilename string
+	RequestUri     string
+	
+}
+
+func(fwc *FcgiWorkerConfig) GetId() string {
+	return fwc.Id
+}
+
+func(fwc *FcgiWorkerConfig) GetType() string {
+	return fwc.Type
+}
+
+func(fwc *FcgiWorkerConfig) CreateWorker(config *proxy.RouteConfig) proxy.Worker {
+	
+	return &FcgiWorker{
+		fcgiHost:    fwc.Host,
+		fcgiTimeout: time.Duration(fwc.Timeout) * time.Second,
+		fcgiParams:  fwc.createFcgiParams(config),
+	}
+	
+}
+
+func(fwc *FcgiWorkerConfig) createFcgiParams(config *proxy.RouteConfig) *map[string]string {
+
+	fcgiHostAddr, fcgiHostPort := strings.Split(fwc.Host, ":")[0], strings.Split(fwc.Host, ":")[1]
+
+	fcgiParams := make(map[string]string)
+
+	fcgiParams["SERVER_PROTOCOL"] = fwc.ServerProtocol
+
+	fcgiParams["SERVER_ADDR"] = fcgiHostAddr
+	fcgiParams["SERVER_PORT"] = fcgiHostPort
+	fcgiParams["SERVER_NAME"] = config.Name + ".job-go-fcgi-proxy.local"
+
+	fcgiParams["REMOTE_ADDR"] = "127.0.0.1"
+	fcgiParams["REMOTE_PORT"] = fcgiHostPort
+
+	fcgiParams["SCRIPT_NAME"] = fwc.ScriptName
+	fcgiParams["SCRIPT_FILENAME"] = fwc.ScriptFilename
+	fcgiParams["REQUEST_URI"] = fwc.RequestUri
+
+	return &fcgiParams
 }
 
 type FcgiWorker struct {
@@ -40,7 +94,7 @@ func NewFcgiWorker(fcgiHost string, fcgiTimeout time.Duration, fcgiParams *map[s
 
 }
 
-func (w *FcgiWorker) work(delivery *amqp.Delivery) (result []byte, reply bool, err error) {
+func (w *FcgiWorker) Work(delivery *amqp.Delivery) (result []byte, reply bool, err error) {
 
 	reply = delivery.CorrelationId != "" && delivery.ReplyTo != ""
 
@@ -152,24 +206,8 @@ func (w *FcgiWorker) work(delivery *amqp.Delivery) (result []byte, reply bool, e
 
 }
 
-func CreateFcgiParams(config *RouteConfig, workerConfig *WorkerConfig) *map[string]string {
-
-	fcgiHostAddr, fcgiHostPort := strings.Split(workerConfig.Host, ":")[0], strings.Split(workerConfig.Host, ":")[1]
-
-	fcgiParams := make(map[string]string)
-
-	fcgiParams["SERVER_PROTOCOL"] = workerConfig.ServerProtocol
-
-	fcgiParams["SERVER_ADDR"] = fcgiHostAddr
-	fcgiParams["SERVER_PORT"] = fcgiHostPort
-	fcgiParams["SERVER_NAME"] = config.Name + ".job-go-fcgi-proxy.local"
-
-	fcgiParams["REMOTE_ADDR"] = "127.0.0.1"
-	fcgiParams["REMOTE_PORT"] = fcgiHostPort
-
-	fcgiParams["SCRIPT_NAME"] = workerConfig.ScriptName
-	fcgiParams["SCRIPT_FILENAME"] = workerConfig.ScriptFilename
-	fcgiParams["REQUEST_URI"] = workerConfig.RequestUri
-
-	return &fcgiParams
+func(w *FcgiWorker) CreateError(details string) ([]byte, error) {
+	body := NewErrorMessage(details)
+	//log.Printf("bodyJson: %q", body);
+	return json.Marshal(body)
 }

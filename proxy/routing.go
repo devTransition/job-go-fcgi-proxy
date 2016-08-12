@@ -4,19 +4,18 @@ import (
 	"fmt"
 	"github.com/streadway/amqp"
 	"log"
-	"time"
 )
 
 type Route struct {
 	config       *RouteConfig
-	workerConfig *WorkerConfig
+	workerConfig WorkerConfig
 	channel      *amqp.Channel
 	consumer     *Consumer
 	dispatcher   *Dispatcher
 	closed       chan *amqp.Error
 }
 
-func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConfig *WorkerConfig) (*Route, error) {
+func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConfig WorkerConfig) (*Route, error) {
 
 	log.Printf("Creating route: %v", config)
 	channel, err := amqpConnection.conn.Channel()
@@ -55,10 +54,7 @@ func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConf
 		return nil, err
 	}
 
-	fcgiTimeout := time.Duration(workerConfig.Timeout) * time.Second
-	fcgiParams := CreateFcgiParams(config, workerConfig)
-
-	worker := NewFcgiWorker(workerConfig.Host, fcgiTimeout, fcgiParams)
+	worker := workerConfig.CreateWorker(config)
 
 	dispatcher := NewDispatcher(consumer.delivery, worker, channel)
 	dispatcher.Run()

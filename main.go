@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/codegangsta/cli"
+	"github.com/devTransition/job-go-fcgi-proxy/fcgiwork"
 	"github.com/devTransition/job-go-fcgi-proxy/proxy"
 	"log"
 	"os"
@@ -61,11 +62,11 @@ func runApp(c *cli.Context) {
 
 	if configSource == "" {
 
-		proxy.FillServiceConfigFromCli(&serviceConfig, c)
+		fcgiwork.FillServiceConfigFromCli(&serviceConfig, c)
 
 	} else {
 
-		err := proxy.FillServiceConfigFromFile(&serviceConfig, configSource)
+		err := fcgiwork.FillServiceConfigFromFile(&serviceConfig, configSource)
 		if err != nil {
 			log.Fatalf("%s", err)
 		}
@@ -136,7 +137,7 @@ func runApp(c *cli.Context) {
 
 					// create route
 					workerConfig := serviceConfig.Workers[routeConfig.Worker]
-					route, err := proxy.CreateRoute(broker, &routeConfig, &workerConfig)
+					route, err := proxy.CreateRoute(broker, &routeConfig, workerConfig)
 
 					if err != nil {
 						// TODO handle route creating errors

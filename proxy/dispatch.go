@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/streadway/amqp"
 	"log"
@@ -42,7 +41,7 @@ func (d *Dispatcher) dispatch() {
 
 		go func(job amqp.Delivery) {
 
-			res, reply, err := d.worker.work(&job)
+			res, reply, err := d.worker.Work(&job)
 
 			if err != nil {
 
@@ -83,9 +82,8 @@ func (d *Dispatcher) dispatch() {
 func (d *Dispatcher) publishReplyError(delivery *amqp.Delivery, err error) {
 
 	log.Println(fmt.Sprintf("Dispatcher: %s", err))
-	body := NewErrorMessage(fmt.Sprintf("Dispatcher: %s", err))
 	//log.Printf("bodyJson: %q", body);
-	bodyJson, _ := json.Marshal(body)
+	bodyJson, _ := d.worker.CreateError(fmt.Sprintf("Dispatcher: %s", err))
 	//log.Printf("bodyJson: %q", bodyJson);
 
 	d.publishReply(delivery, bodyJson)
@@ -157,5 +155,6 @@ func (d *Dispatcher) finish() {
 }
 
 type Worker interface {
-	work(*amqp.Delivery) ([]byte, bool, error)
+	Work(*amqp.Delivery) ([]byte, bool, error)
+	CreateError(string) ([]byte, error)
 }
