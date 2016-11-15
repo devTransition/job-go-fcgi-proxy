@@ -11,6 +11,7 @@ import (
 
 	"github.com/devTransition/job-go-fcgi-proxy/proxy"
 	"github.com/streadway/amqp"
+	"github.com/tomasen/fcgi_client"
 )
 
 type ErrorMessage struct {
