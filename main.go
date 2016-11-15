@@ -46,9 +46,9 @@ func runApp(c *cli.Context) {
 	lifetime := c.Int("lifetime")
 
 	if lifetime == 0 {
-		println("Running forever...")
+		fmt.Println("Running forever...")
 	} else {
-		println(fmt.Sprintf("Running ... Will exit after %d sec", lifetime))
+		fmt.Printf("Running... Will exit after %d sec", lifetime)
 	}
 
 	configSource := c.String("config")
