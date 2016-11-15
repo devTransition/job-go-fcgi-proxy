@@ -1,6 +1,5 @@
 package proxy
 
-
 type ServiceConfig struct {
 	Brokers map[string]BrokerConfig
 	Workers map[string]WorkerConfig
@@ -16,7 +15,6 @@ type BrokerConfig struct {
 }
 
 type WorkerConfig interface {
-	
 	GetId() string
 	GetType() string
 	CreateWorker(*RouteConfig) Worker

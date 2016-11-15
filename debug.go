@@ -1,12 +1,13 @@
 package main
 
 import (
-	"github.com/codegangsta/cli"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/codegangsta/cli"
 )
 
 func main() {

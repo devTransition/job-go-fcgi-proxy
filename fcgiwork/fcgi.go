@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/streadway/amqp"
-	"github.com/tomasen/fcgi_client"
 	"io/ioutil"
 	"log"
 	"strings"
 	"time"
+
 	"github.com/devTransition/job-go-fcgi-proxy/proxy"
+	"github.com/streadway/amqp"
 )
 
 type ErrorMessage struct {
@@ -26,7 +26,6 @@ func NewErrorMessage(details string) *ErrorMessage {
 }
 
 type FcgiWorkerConfig struct {
-	
 	Id             string
 	Type           string
 	Host           string
@@ -35,28 +34,27 @@ type FcgiWorkerConfig struct {
 	ScriptName     string
 	ScriptFilename string
 	RequestUri     string
-	
 }
 
-func(fwc *FcgiWorkerConfig) GetId() string {
+func (fwc *FcgiWorkerConfig) GetId() string {
 	return fwc.Id
 }
 
-func(fwc *FcgiWorkerConfig) GetType() string {
+func (fwc *FcgiWorkerConfig) GetType() string {
 	return fwc.Type
 }
 
-func(fwc *FcgiWorkerConfig) CreateWorker(config *proxy.RouteConfig) proxy.Worker {
-	
+func (fwc *FcgiWorkerConfig) CreateWorker(config *proxy.RouteConfig) proxy.Worker {
+
 	return &FcgiWorker{
 		fcgiHost:    fwc.Host,
 		fcgiTimeout: time.Duration(fwc.Timeout) * time.Second,
 		fcgiParams:  fwc.createFcgiParams(config),
 	}
-	
+
 }
 
-func(fwc *FcgiWorkerConfig) createFcgiParams(config *proxy.RouteConfig) *map[string]string {
+func (fwc *FcgiWorkerConfig) createFcgiParams(config *proxy.RouteConfig) *map[string]string {
 
 	fcgiHostAddr, fcgiHostPort := strings.Split(fwc.Host, ":")[0], strings.Split(fwc.Host, ":")[1]
 
@@ -206,7 +204,7 @@ func (w *FcgiWorker) Work(delivery *amqp.Delivery) (result []byte, reply bool, e
 
 }
 
-func(w *FcgiWorker) CreateError(details string) ([]byte, error) {
+func (w *FcgiWorker) CreateError(details string) ([]byte, error) {
 	body := NewErrorMessage(details)
 	//log.Printf("bodyJson: %q", body);
 	return json.Marshal(body)
