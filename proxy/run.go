@@ -1,19 +1,19 @@
 package proxy
 
 import (
+	"fmt"
 	"log"
 	"os"
-	"syscall"
-	"sync"
-	"fmt"
-	"time"
 	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 )
 
 func Run(serviceConfig *ServiceConfig, lifetime int) {
-	
+
 	var mutex sync.Mutex
-	
+
 	brokers := map[BrokerConfig]*AmqpConnection{}
 	routes := map[BrokerConfig]map[RouteConfig]*Route{}
 
@@ -142,7 +142,7 @@ func Run(serviceConfig *ServiceConfig, lifetime int) {
 	mutex.Lock()
 	shutdown(&routes, &brokers)
 	mutex.Unlock()
-	
+
 }
 
 func shutdown(routes *map[BrokerConfig]map[RouteConfig]*Route, brokers *map[BrokerConfig]*AmqpConnection) {

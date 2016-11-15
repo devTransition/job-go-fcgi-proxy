@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/codegangsta/cli"
-	"github.com/devTransition/job-go-fcgi-proxy/fcgiwork"
 	"log"
 	"os"
+
+	"github.com/codegangsta/cli"
+	"github.com/devTransition/job-go-fcgi-proxy/fcgiwork"
 	"github.com/devTransition/job-go-fcgi-proxy/proxy"
 )
-
 
 func main() {
 

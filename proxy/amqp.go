@@ -2,10 +2,11 @@ package proxy
 
 import (
 	"fmt"
-	"github.com/streadway/amqp"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/streadway/amqp"
 )
 
 type AmqpConnection struct {

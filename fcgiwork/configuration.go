@@ -2,10 +2,11 @@ package fcgiwork
 
 import (
 	"fmt"
+	"log"
+
 	"github.com/codegangsta/cli"
 	"github.com/devTransition/job-go-fcgi-proxy/proxy"
 	"github.com/spf13/viper"
-	"log"
 	//"reflect"
 )
 

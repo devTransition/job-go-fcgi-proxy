@@ -2,9 +2,10 @@ package proxy
 
 import (
 	"fmt"
-	"github.com/streadway/amqp"
 	"log"
 	"sync"
+
+	"github.com/streadway/amqp"
 )
 
 type Dispatcher struct {
