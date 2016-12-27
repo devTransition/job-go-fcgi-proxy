@@ -64,11 +64,6 @@ func Run(serviceConfig *ServiceConfig, lifetime int) {
 
 				for routeConfig := range brokerRoutes {
 
-					route := brokerRoutes[routeConfig]
-
-					// remove old route from map
-					// brokerRoutes[routeConfig] = nil
-
 					// create route
 					workerConfig := serviceConfig.Workers[routeConfig.Worker]
 					route, err := CreateRoute(broker, &routeConfig, workerConfig)
@@ -97,13 +92,14 @@ func Run(serviceConfig *ServiceConfig, lifetime int) {
 					}
 
 				}
-
+				
+				// all routes closed when disconnected, re-open connection
 				broker.Open()
 
 			}
 
 			log.Printf("Brokers: %v", brokers)
-			// should finish when op channel closed
+			// should finish when op channel closed on shutdown
 
 		}()
 
@@ -140,12 +136,12 @@ func Run(serviceConfig *ServiceConfig, lifetime int) {
 	<-waitShutdown
 
 	mutex.Lock()
-	shutdown(&routes, &brokers)
+	shutdown(routes, brokers)
 	mutex.Unlock()
 
 }
 
-func shutdown(routes *map[BrokerConfig]map[RouteConfig]*Route, brokers *map[BrokerConfig]*AmqpConnection) {
+func shutdown(routes map[BrokerConfig]map[RouteConfig]*Route, brokers map[BrokerConfig]*AmqpConnection) {
 
 	var err error
 
@@ -164,12 +160,12 @@ func shutdown(routes *map[BrokerConfig]map[RouteConfig]*Route, brokers *map[Brok
 	log.Println("Shutdown success")
 
 	// TODO debug
-	// time.Sleep(time.Second * 10)
+	time.Sleep(time.Second * 100)
 }
 
-func shutdownRoutes(routes *map[BrokerConfig]map[RouteConfig]*Route) (err error) {
+func shutdownRoutes(routes map[BrokerConfig]map[RouteConfig]*Route) (err error) {
 
-	for _, brokerRoutes := range *routes {
+	for _, brokerRoutes := range routes {
 
 		for _, route := range brokerRoutes {
 
@@ -187,9 +183,9 @@ func shutdownRoutes(routes *map[BrokerConfig]map[RouteConfig]*Route) (err error)
 
 }
 
-func shutdownBrokers(brokers *map[BrokerConfig]*AmqpConnection) (err error) {
+func shutdownBrokers(brokers map[BrokerConfig]*AmqpConnection) (err error) {
 
-	for _, broker := range *brokers {
+	for _, broker := range brokers {
 
 		if err = broker.Shutdown(); err != nil {
 			err = fmt.Errorf("Shutdown error: %s", err)

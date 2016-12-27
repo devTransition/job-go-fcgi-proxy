@@ -13,7 +13,6 @@ type AmqpConnection struct {
 	uri          string
 	config       *BrokerConfig
 	mutex        sync.Mutex
-	opener       sync.Once
 	conn         *amqp.Connection
 	openNotifies []chan *AmqpConnection
 	shutdown     bool
@@ -25,31 +24,6 @@ func NewAmqpConnection(config *BrokerConfig) (*AmqpConnection, error) {
 		config: config,
 		uri:    "amqp://" + config.User + ":" + config.Password + "@" + config.Host,
 	}
-
-	/*
-		notify := c.NotifyOpen(make(chan *AmqpConnection))
-
-		go func() {
-
-			log.Printf("Broker: connection ready: %s", (<-notify).config)
-
-		}()
-	*/
-
-	/*
-		var err error
-
-		log.Printf("Broker %q dialing to %q", config.Id, c.uri)
-		c.conn, err = amqp.Dial(c.uri)
-
-		if err != nil {
-			return nil, fmt.Errorf("Broker %v dial error: %s", config, err)
-		}
-
-		go func() {
-			log.Printf("Broker: closing: %s", <-c.conn.NotifyClose(make(chan *amqp.Error)))
-		}()
-	*/
 
 	return c, nil
 

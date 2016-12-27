@@ -55,11 +55,11 @@ func (fwc *FcgiWorkerConfig) CreateWorker(config *proxy.RouteConfig) proxy.Worke
 
 }
 
-func (fwc *FcgiWorkerConfig) createFcgiParams(config *proxy.RouteConfig) *map[string]string {
+func (fwc *FcgiWorkerConfig) createFcgiParams(config *proxy.RouteConfig) map[string]string {
 
 	fcgiHostAddr, fcgiHostPort := strings.Split(fwc.Host, ":")[0], strings.Split(fwc.Host, ":")[1]
 
-	fcgiParams := make(map[string]string)
+	fcgiParams := map[string]string{}
 
 	fcgiParams["SERVER_PROTOCOL"] = fwc.ServerProtocol
 
@@ -74,16 +74,16 @@ func (fwc *FcgiWorkerConfig) createFcgiParams(config *proxy.RouteConfig) *map[st
 	fcgiParams["SCRIPT_FILENAME"] = fwc.ScriptFilename
 	fcgiParams["REQUEST_URI"] = fwc.RequestUri
 
-	return &fcgiParams
+	return fcgiParams
 }
 
 type FcgiWorker struct {
 	fcgiHost    string
 	fcgiTimeout time.Duration
-	fcgiParams  *map[string]string
+	fcgiParams  map[string]string
 }
 
-func NewFcgiWorker(fcgiHost string, fcgiTimeout time.Duration, fcgiParams *map[string]string) *FcgiWorker {
+func NewFcgiWorker(fcgiHost string, fcgiTimeout time.Duration, fcgiParams map[string]string) *FcgiWorker {
 
 	return &FcgiWorker{
 		fcgiHost:    fcgiHost,
@@ -133,7 +133,7 @@ func (w *FcgiWorker) Work(delivery *amqp.Delivery) (result []byte, reply bool, e
 	fcgiParams := make(map[string]string)
 
 	// copy fcgi params from options
-	for k, v := range *w.fcgiParams {
+	for k, v := range w.fcgiParams {
 		fcgiParams[k] = v
 	}
 
