@@ -44,7 +44,7 @@ func Run(serviceConfig *ServiceConfig, lifetime int) {
 
 	// Note: "closing" here is unexpected termination (connection loss), "shutdown" is the result of graceful exit
 
-	for brokerConfig := range routes {
+	for brokerConfig, brokerRoutes := range routes {
 
 		broker := brokers[brokerConfig]
 		//log.Printf("Broker: %v", broker)
@@ -52,15 +52,15 @@ func Run(serviceConfig *ServiceConfig, lifetime int) {
 		// subscribe for broker connection open
 		op := broker.NotifyOpen(make(chan *AmqpConnection))
 
-		go func() {
-
+		go func(broker *AmqpConnection, brokerRoutes map[RouteConfig]*Route) {
+			
+			inShutdown := broker.NotifyShutdown(make(chan struct{}, 1));
+			
 			for range op {
-
+				
 				// re-create routes every time when broker connection is opened
 
 				mutex.Lock()
-
-				brokerRoutes := routes[brokerConfig]
 
 				for routeConfig := range brokerRoutes {
 
@@ -81,27 +81,34 @@ func Run(serviceConfig *ServiceConfig, lifetime int) {
 				log.Printf("Broker routes created: %v", broker)
 
 				mutex.Unlock()
-
+				
 				for routeConfig := range brokerRoutes {
 
 					route := brokerRoutes[routeConfig]
 					if route != nil {
-
+						
+						log.Printf("Wait for route: %v", route.config)
 						route.WaitClosed()
+						log.Printf("Wait for route: closed: %v", route.config)
 
 					}
 
 				}
 				
-				// all routes closed when disconnected, re-open connection
-				broker.Open()
-
+				select {
+				case <-inShutdown:
+					// do nothing, exit when "op" channel closed 
+				default:
+					// all routes closed when disconnected, re-open connection
+					broker.Open()
+				}
+				
 			}
 
-			log.Printf("Brokers: %v", brokers)
+			log.Printf("Broker finished: %v", broker)
 			// should finish when op channel closed on shutdown
 
-		}()
+		}(broker, brokerRoutes)
 
 		broker.Open()
 

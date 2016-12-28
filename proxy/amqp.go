@@ -15,7 +15,8 @@ type AmqpConnection struct {
 	mutex        sync.Mutex
 	conn         *amqp.Connection
 	openNotifies []chan *AmqpConnection
-	shutdown     bool
+	shutdownNotifies []chan struct{}
+	inShutdown   chan struct{}
 }
 
 func NewAmqpConnection(config *BrokerConfig) (*AmqpConnection, error) {
@@ -24,7 +25,9 @@ func NewAmqpConnection(config *BrokerConfig) (*AmqpConnection, error) {
 		config: config,
 		uri:    "amqp://" + config.User + ":" + config.Password + "@" + config.Host,
 	}
-
+	
+	c.inShutdown = c.NotifyShutdown(make(chan struct{}))
+	
 	return c, nil
 
 }
@@ -38,25 +41,40 @@ func (c *AmqpConnection) Open() {
 func (c *AmqpConnection) tryDial() {
 
 	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for ; ; <-ticker.C {
+	//defer ticker.Stop()
 
-		c.mutex.Lock()
+	for {
 
-		if c.shutdown {
-			log.Printf("cancel reconnect, in shutdown")
+		select {
+		case <-ticker.C:
+			_, err := c.dial()
+			
+			select {
+			case <-c.inShutdown:
+				// unblock shutdown call and finish
+				if err != nil {
+					log.Printf("Broker: %q: got shutdown on reconnect", c.config.Id)
+				} else {
+					log.Printf("Broker: %q: got shutdown when connected", c.config.Id)
+				}
+				return
+			default:
+				if err != nil {
+					log.Printf("Broker %q: trying to reconnect in 2 seconds...", c.config.Id)
+				} else {
+					// init broker and wait for shutdown
+					c.init()
+					ticker.Stop()
+					ticker.C = nil
+				}
+			}
+			
+		case <-c.inShutdown:
+			log.Printf("Broker %q: got shutdown", c.config.Id)
+			// unblock shutdown call and finish
 			return
 		}
 
-		_, err := c.dial()
-		c.mutex.Unlock()
-
-		if err != nil {
-			log.Printf("trying to reconnect in 2 seconds...")
-			continue
-		}
-
-		return
 	}
 
 }
@@ -74,11 +92,18 @@ func (c *AmqpConnection) dial() (*amqp.Connection, error) {
 
 	log.Printf("Broker %q: dial success", c.config.Id)
 
+	return c.conn, err
+
+}
+
+func (c *AmqpConnection) init() {
+	
+	defer log.Printf("Broker %q: initialized", c.config.Id)
+	
 	for _, ch := range c.openNotifies {
 		ch <- c
 	}
 
-	//closed := c.conn.NotifyClose(make(chan *amqp.Error, 1))
 	closed := c.NotifyClose(make(chan *amqp.Error, 1))
 
 	go func() {
@@ -86,8 +111,6 @@ func (c *AmqpConnection) dial() (*amqp.Connection, error) {
 		log.Printf("Broker %q: connection closed, %s", c.config.Id, <-closed)
 
 	}()
-
-	return c.conn, err
 
 }
 
@@ -107,15 +130,32 @@ func (c *AmqpConnection) NotifyClose(ch chan *amqp.Error) chan *amqp.Error {
 
 }
 
-func (c *AmqpConnection) Shutdown() error {
+func (c *AmqpConnection) NotifyShutdown(ch chan struct{}) chan struct{} {
 
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+
+	c.shutdownNotifies = append(c.shutdownNotifies, ch)
+
+	return ch
+}
+
+func (c *AmqpConnection) Shutdown() error {
+
+	for _, ch := range c.shutdownNotifies {
+		ch <- struct {}{}
+	}
+	
 	defer log.Printf("AMQP Connection shutdown OK")
 
-	c.shutdown = true
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 
 	for _, ch := range c.openNotifies {
+		close(ch)
+	}
+	
+	for _, ch := range c.shutdownNotifies {
 		close(ch)
 	}
 

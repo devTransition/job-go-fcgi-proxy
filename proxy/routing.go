@@ -76,7 +76,6 @@ func CreateRoute(amqpConnection *AmqpConnection, config *RouteConfig, workerConf
 			<-dispatcher.NotifyFinished(make(chan error, 1))
 
 			log.Printf("Route: closed")
-
 			route.closed <- err
 
 		}
@@ -110,6 +109,9 @@ func (instance *Route) Shutdown() error {
 		if err := instance.channel.Close(); err != nil {
 			log.Printf("Route %q: Error during AMQP Channel close: %s", instance.config.Name, err)
 		}
+		
+		log.Printf("Route: closed")
+		instance.closed <- nil
 
 	}
 
